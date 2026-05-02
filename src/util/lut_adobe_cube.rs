@@ -47,8 +47,20 @@ impl LutRgbF32Cube3d {
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LutCubeParseError {
+    /// file not contain any `LUT_3D_SIZE` header line.
+    MissingLutSize,
+    /// header line not formatted as `LUT_3D_SIZE N`.
+    InvalidLutSizeLine {
+        /// 1-based source line no.
+        line: usize,
+    },
     /// size outside the supported range.
     InvalidLutSize { size: u32 },
+    /// line in RGB data section not three floats.
+    MalformedRgbLine {
+        /// 1-based source line no.
+        line: usize,
+    },
     /// number of RGB samples not match `size^3`.
     WrongRgbCount { expected: usize, actual: usize },
 }
@@ -56,8 +68,17 @@ pub(crate) enum LutCubeParseError {
 impl std::fmt::Display for LutCubeParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::MissingLutSize => {
+                write!(f, "LUT cube file is missing LUT_3D_SIZE header")
+            }
+            Self::InvalidLutSizeLine { line } => {
+                write!(f, "invalid LUT_3D_SIZE header (line {line})")
+            }
             Self::InvalidLutSize { size } => {
                 write!(f, "LUT size {size} is outside supported bounds")
+            }
+            Self::MalformedRgbLine { line } => {
+                write!(f, "malformed RGB sample line (line {line})")
             }
             Self::WrongRgbCount { expected, actual } => write!(
                 f,
@@ -84,11 +105,27 @@ pub(crate) fn expected_lut_sample_count(size: u32) -> Option<usize> {
     Some(n.checked_mul(n)?.checked_mul(n)?)
 }
 
+/// Parse a minimal ASCII `.cube` LUT.
+///
+/// This will be implemented in small steps; for now it only reports a missing
+/// `LUT_3D_SIZE` header.
+///
+/// # Errors
+///
+/// Returns [`LutCubeParseError`] if the text does not match the supported
+/// subset.
+#[allow(dead_code)] // Called from tests until host wiring lands.
+pub(crate) fn parse_adobe_cube_str(_input: &str) -> Result<LutRgbF32Cube3d, LutCubeParseError> {
+    Err(LutCubeParseError::MissingLutSize)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use super::{expected_lut_sample_count, LutCubeParseError, LutRgbF32Cube3d};
+    use super::{
+        expected_lut_sample_count, parse_adobe_cube_str, LutCubeParseError, LutRgbF32Cube3d,
+    };
 
     #[test]
     // check math on tiny LUTs without building large vectors.
@@ -132,5 +169,11 @@ mod tests {
                 actual: 1
             }
         );
+    }
+
+    #[test]
+    fn parse_reports_missing_header() {
+        let err = parse_adobe_cube_str("").expect_err("should reject empty input");
+        assert_eq!(err, LutCubeParseError::MissingLutSize);
     }
 }
