@@ -112,8 +112,10 @@ pub(crate) fn expected_lut_sample_count(size: u32) -> Option<usize> {
 ///
 /// ASCII `#` comments are supported: a line whose first non-space
 /// character is `#` is ignored; otherwise text from the first `#` onward is
-/// stripped before parsing. UTF-8 BOM and `TITLE` / `DOMAIN_*` lines are not
-/// handled here.
+/// stripped before parsing.
+///
+/// Common DaVinci / Adobe header lines `TITLE`, `DOMAIN_MIN`, and `DOMAIN_MAX`
+/// are not validated. UTF-8 BOM is not handled here.
 ///
 /// # Errors
 ///
@@ -134,6 +136,10 @@ pub(crate) fn parse_adobe_cube_str(input: &str) -> Result<LutRgbF32Cube3d, LutCu
         let Some(line) = meaningful_cube_line(trimmed) else {
             continue;
         };
+
+        if is_adobe_cube_metadata_line(line) {
+            continue;
+        }
 
         match lut_size {
             None => {
@@ -189,6 +195,17 @@ fn meaningful_cube_line(trimmed_physical_line: &str) -> Option<&str> {
         .trim();
 
     (!before_hash.is_empty()).then_some(before_hash)
+}
+
+/// Returns `true` when `meaningful_line` is a known Adobe `.cube` metadata
+/// header line (`TITLE`, `DOMAIN_MIN`, `DOMAIN_MAX`).
+fn is_adobe_cube_metadata_line(meaningful_line: &str) -> bool {
+    let mut tokens = meaningful_line.split_whitespace();
+    let Some(head) = tokens.next() else {
+        return false;
+    };
+
+    matches!(head, "TITLE" | "DOMAIN_MIN" | "DOMAIN_MAX")
 }
 
 fn parse_lut_size_line(line: &str, line_no: usize) -> Result<u32, LutCubeParseError> {
@@ -515,5 +532,40 @@ LUT_3D_SIZE 2  # grid
 
         assert_eq!(lut_strict.size, lut_hash.size);
         assert_eq!(lut_strict.rgb, lut_hash.rgb);
+    }
+
+    #[test]
+    fn parse_skips_title_and_domain_lines_before_lut_size() {
+        let src = "TITLE \"warm grade\"\n\
+             DOMAIN_MIN 0 0 0\n\
+             DOMAIN_MAX 1 1 1\n\
+             LUT_3D_SIZE 2\n\
+             0 0 0\n1 0 0\n0 1 0\n1 1 0\n\
+             0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+
+        let lut = parse_adobe_cube_str(src).expect("TITLE/DOMAIN prefix must parse");
+        assert_eq!(lut.size, 2);
+        assert_eq!(lut.rgb.len(), 8);
+        assert_eq!(lut.rgb[7], [1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn parse_fixture_minimal_n2_metadata_matches_strict_fixture_rgb() {
+        const STRICT: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testdata/lut/minimal_n2.cube"
+        ));
+        const WITH_META: &str = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testdata/lut/minimal_n2_metadata.cube"
+        ));
+
+        let lut_strict =
+            parse_adobe_cube_str(STRICT).expect("strict LUT fixture must parse");
+        let lut_meta =
+            parse_adobe_cube_str(WITH_META).expect("TITLE/DOMAIN LUT fixture must parse");
+
+        assert_eq!(lut_strict.size, lut_meta.size);
+        assert_eq!(lut_strict.rgb, lut_meta.rgb);
     }
 }
