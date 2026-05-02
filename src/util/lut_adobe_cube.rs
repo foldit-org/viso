@@ -107,9 +107,9 @@ pub(crate) fn expected_lut_sample_count(size: u32) -> Option<usize> {
 
 /// Parse a minimal ASCII `.cube` LUT.
 ///
-/// Step **3.1aiii**: after `LUT_3D_SIZE N`, each non-empty line must be three
-/// whitespace-separated floats (`r g b`). Blank lines are skipped. Comment/BOM
-/// handling is deferred.
+/// Define a strict subset: after `LUT_3D_SIZE N`, each
+/// non-empty line must be exactly three whitespace-separated floats (`r g b`).
+/// Blank lines are skipped. Comment/BOM handling haven't done yet.
 ///
 /// # Errors
 ///
@@ -353,6 +353,71 @@ LUT_3D_SIZE 2
                 expected: 8,
                 actual: 9
             }
+        );
+    }
+
+    #[test]
+    fn parse_succeeds_for_minimal_two_cubed_lut() {
+        let src = "LUT_3D_SIZE 2\n\
+             0 0 0\n1 0 0\n0 1 0\n1 1 0\n\
+             0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+
+        let lut = parse_adobe_cube_str(src).expect("minimal N=2 LUT must parse");
+
+        let expected = [
+            [0.0_f32, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
+        ];
+
+        assert_eq!(lut.size, 2);
+        assert_eq!(lut.rgb, expected);
+    }
+
+    #[test]
+    fn parse_skips_blank_lines_between_header_and_samples() {
+        let src = "LUT_3D_SIZE 2\n\
+             \n\
+             0 0 0\n\n1 0 0\n  \n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+
+        let lut = parse_adobe_cube_str(src).expect("blank lines should not break parse");
+        assert_eq!(lut.size, 2);
+        assert_eq!(lut.rgb.len(), 8);
+        assert_eq!(lut.rgb[0], [0.0, 0.0, 0.0]);
+        assert_eq!(lut.rgb[7], [1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn parse_rejects_rgb_line_with_too_few_tokens() {
+        let err = parse_adobe_cube_str("LUT_3D_SIZE 2\n0 0\n").expect_err("need three floats");
+        assert_eq!(
+            err,
+            LutCubeParseError::MalformedRgbLine { line: 2 }
+        );
+    }
+
+    #[test]
+    fn parse_rejects_rgb_line_with_too_many_tokens() {
+        let err =
+            parse_adobe_cube_str("LUT_3D_SIZE 2\n0 0 0 1\n").expect_err("extra token");
+        assert_eq!(
+            err,
+            LutCubeParseError::MalformedRgbLine { line: 2 }
+        );
+    }
+
+    #[test]
+    fn parse_rejects_lut_size_line_with_trailing_token() {
+        let err = parse_adobe_cube_str("LUT_3D_SIZE 2 extra\n")
+            .expect_err("header must be exactly two tokens after split");
+        assert_eq!(
+            err,
+            LutCubeParseError::InvalidLutSizeLine { line: 1 }
         );
     }
 }
