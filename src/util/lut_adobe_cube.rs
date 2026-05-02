@@ -115,7 +115,8 @@ pub(crate) fn expected_lut_sample_count(size: u32) -> Option<usize> {
 /// stripped before parsing.
 ///
 /// Common DaVinci / Adobe header lines `TITLE`, `DOMAIN_MIN`, and `DOMAIN_MAX`
-/// are not validated. UTF-8 BOM is not handled here.
+/// are ignored (payload not validated). A leading UTF-8 BOM (`U+FEFF`) is
+/// stripped before parsing.
 ///
 /// # Errors
 ///
@@ -123,6 +124,8 @@ pub(crate) fn expected_lut_sample_count(size: u32) -> Option<usize> {
 /// subset.
 #[allow(dead_code)] // Called from tests until host wiring lands.
 pub(crate) fn parse_adobe_cube_str(input: &str) -> Result<LutRgbF32Cube3d, LutCubeParseError> {
+    let input = input.strip_prefix('\u{FEFF}').unwrap_or(input);
+
     let mut lut_size: Option<u32> = None;
     let mut rgb: Vec<[f32; 3]> = Vec::new();
 
@@ -567,5 +570,18 @@ LUT_3D_SIZE 2  # grid
 
         assert_eq!(lut_strict.size, lut_meta.size);
         assert_eq!(lut_strict.rgb, lut_meta.rgb);
+    }
+
+    #[test]
+    fn parse_accepts_leading_utf8_bom() {
+        let inner = "LUT_3D_SIZE 2\n\
+             0 0 0\n1 0 0\n0 1 0\n1 1 0\n\
+             0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+        let with_bom = format!("{}{}", '\u{FEFF}', inner);
+
+        let lut_plain = parse_adobe_cube_str(inner).expect("plain LUT must parse");
+        let lut_bom = parse_adobe_cube_str(&with_bom).expect("BOM-prefixed LUT must parse");
+
+        assert_eq!(lut_plain, lut_bom);
     }
 }
