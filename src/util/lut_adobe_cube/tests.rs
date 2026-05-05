@@ -1,5 +1,8 @@
 //! Tests for the `lut_adobe_cube` module.
 
+use bytemuck::pod_read_unaligned;
+
+use super::types::lattice_xyz_for_sample_index;
 use super::{
     expected_lut_sample_count, parse_adobe_cube_bytes, parse_adobe_cube_str,
     LutCubeParseError, LutRgbF32Cube3d,
@@ -332,4 +335,57 @@ fn parse_bytes_accepts_utf8_bom_and_matches_str_parse() {
     let lut_str = parse_adobe_cube_str(inner).expect("plain string must parse");
 
     assert_eq!(lut_bytes, lut_str);
+}
+
+// CPU and GPU layout matches see `types.rs`
+// tests for lattice and rgba helpers matches `minimal_n2` fixture
+
+#[test]
+// k=0..7 maps to 8 corners (0,0,0) .. (1,1,1)
+// k=8 is out of range
+fn lattice_n2_maps_sample_index_k_to_rgb_axes_xyz() {
+    let n = 2;
+    let corners = [
+        (0, 0, 0),
+        (1, 0, 0),
+        (0, 1, 0),
+        (1, 1, 0),
+        (0, 0, 1),
+        (1, 0, 1),
+        (0, 1, 1),
+        (1, 1, 1),
+    ];
+    for (k, want) in corners.iter().enumerate() {
+        let got = lattice_xyz_for_sample_index(n, k).expect("in range");
+        assert_eq!(got, *want, "k={k}");
+    }
+    assert!(lattice_xyz_for_sample_index(n, 8).is_none());
+}
+
+#[test]
+// parse minimal 2³ LUT, assert f32 texel matches first and last corner
+fn rgba_volume_helpers_match_minimal_n2_fixture() {
+    let src = "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 \
+               1\n1 1 1\n";
+    let lut = parse_adobe_cube_str(src).expect("minimal N=2 LUT");
+
+    let texels = lut.rgba_f32_volume_texels();
+    assert_eq!(texels.len(), 8);
+    assert_eq!(texels[0], [0.0, 0.0, 0.0, 1.0]);
+    assert_eq!(texels[7], [1.0, 1.0, 1.0, 1.0]);
+
+    let bytes = lut.rgba_bytes_volume_order();
+    assert_eq!(bytes.len(), 8_usize.saturating_mul(16));
+
+    let first = pod_read_unaligned::<[f32; 4]>(&bytes[0..16]);
+    let last = pod_read_unaligned::<[f32; 4]>(&bytes[8 * 16 - 16..8 * 16]);
+    assert_eq!(first, [0.0, 0.0, 0.0, 1.0]);
+    assert_eq!(last, [1.0, 1.0, 1.0, 1.0]);
+}
+
+#[test]
+// k == N³ is out of range, must return None
+fn lattice_rejects_out_of_range_k() {
+    assert!(lattice_xyz_for_sample_index(2, 9).is_none());
+    assert!(lattice_xyz_for_sample_index(3, 27).is_none());
 }

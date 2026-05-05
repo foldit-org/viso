@@ -9,6 +9,7 @@
 //! [`types::lattice_xyz_for_sample_index`]; `types.rs` for full details.
 //!
 //! Code lives in `error.rs`, `types.rs`, `parse.rs`; tests in `tests.rs`.
+//! CPU parse `.cube` file., types to wgpu 3d texture, error / parse / types.
 
 mod error;
 mod parse;
