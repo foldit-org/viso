@@ -1,4 +1,4 @@
-//! In-memory 3D LUT buffer ([`LutRgbF32Cube3d`]), lattice indexing for GPU
+//! In-memory 3D LUT buffer ([`LutRgbCube3d`]), lattice indexing for GPU
 //! upload, and [`expected_lut_sample_count`].
 
 use bytemuck::bytes_of;
@@ -8,7 +8,7 @@ use super::LutCubeParseError;
 /// In-memory RGB samples for a 3D LUT with edge length [`Self::size`] (`N` in
 /// `LUT_3D_SIZE N`).
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct LutRgbF32Cube3d {
+pub(crate) struct LutRgbCube3d {
     /// Grid dimension `N` (`LUT_3D_SIZE N`).
     pub(crate) size: u32,
     /// Flattened RGB triplets in file order; length must equal `size³` for a
@@ -47,7 +47,7 @@ pub(crate) fn lattice_xyz_for_sample_index(
     ))
 }
 
-impl LutRgbF32Cube3d {
+impl LutRgbCube3d {
     /// Maximum supported 'LUT_3D_SIZE' value ('N').
     pub(crate) const MAX_SIZE: u32 = 256;
 

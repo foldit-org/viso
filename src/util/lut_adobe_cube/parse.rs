@@ -1,7 +1,7 @@
 //! Parse `.cube` text line by line. Public API: [`parse_adobe_cube_str`],
 //! [`parse_adobe_cube_bytes`].
 
-use super::{expected_lut_sample_count, LutCubeParseError, LutRgbF32Cube3d};
+use super::{expected_lut_sample_count, LutCubeParseError, LutRgbCube3d};
 
 /// Parse a UTF-8 `.cube` string. Skips blanks, `#` comments, `TITLE` /
 /// `DOMAIN_*`, strips a leading BOM, then expects `LUT_3D_SIZE N` and `N³` RGB
@@ -11,7 +11,7 @@ use super::{expected_lut_sample_count, LutCubeParseError, LutRgbF32Cube3d};
 #[allow(dead_code)] // Not called from production code yet.
 pub(crate) fn parse_adobe_cube_str(
     input: &str,
-) -> Result<LutRgbF32Cube3d, LutCubeParseError> {
+) -> Result<LutRgbCube3d, LutCubeParseError> {
     let input = input.strip_prefix('\u{FEFF}').unwrap_or(input);
 
     let mut lut_size: Option<u32> = None;
@@ -37,7 +37,7 @@ pub(crate) fn parse_adobe_cube_str(
                 let n = parse_lut_size_line(line, line_no)?;
 
                 // Header line is valid syntax only; check allowed N here.
-                if !(2..=LutRgbF32Cube3d::MAX_SIZE).contains(&n)
+                if !(2..=LutRgbCube3d::MAX_SIZE).contains(&n)
                     || expected_lut_sample_count(n).is_none()
                 {
                     return Err(LutCubeParseError::InvalidLutSize { size: n });
@@ -67,7 +67,7 @@ pub(crate) fn parse_adobe_cube_str(
         return Err(LutCubeParseError::MissingLutSize);
     };
 
-    LutRgbF32Cube3d::new(lut_sz, rgb)
+    LutRgbCube3d::new(lut_sz, rgb)
 }
 
 /// UTF-8 bytes → [`parse_adobe_cube_str`]. Wrong encoding →
@@ -75,7 +75,7 @@ pub(crate) fn parse_adobe_cube_str(
 #[allow(dead_code)] // Not called from production code yet.
 pub(crate) fn parse_adobe_cube_bytes(
     input: &[u8],
-) -> Result<LutRgbF32Cube3d, LutCubeParseError> {
+) -> Result<LutRgbCube3d, LutCubeParseError> {
     let text = std::str::from_utf8(input)
         .map_err(|_| LutCubeParseError::InvalidUtf8)?;
     parse_adobe_cube_str(text)

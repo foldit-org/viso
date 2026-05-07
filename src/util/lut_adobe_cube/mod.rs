@@ -1,5 +1,5 @@
 //! Read Adobe / DaVinci style `.cube` 3D LUT files on the CPU, and produce
-//! GPU-oriented RGBA32F volume bytes for PR2+ (`LutRgbF32Cube3d` helpers).
+//! GPU-oriented RGBA32F volume bytes for PR2+ (`LutRgbCube3d` helpers).
 //!
 //! Supports a small strict format: `LUT_3D_SIZE N`, then `N×N×N` lines of three
 //! RGB numbers. Skips blank lines, `#` comments, `TITLE` / `DOMAIN_*` lines,
@@ -22,7 +22,7 @@ pub(crate) use error::LutCubeParseError;
 // wiring lands.
 #[allow(unused_imports)]
 pub(crate) use parse::{parse_adobe_cube_bytes, parse_adobe_cube_str};
-pub(crate) use types::{expected_lut_sample_count, LutRgbF32Cube3d};
+pub(crate) use types::{expected_lut_sample_count, LutRgbCube3d};
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
