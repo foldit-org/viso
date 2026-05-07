@@ -2,6 +2,7 @@
 //! upload, and [`expected_lut_sample_count`].
 
 use bytemuck::bytes_of;
+use half::f16;
 
 use super::LutCubeParseError;
 
@@ -97,6 +98,23 @@ impl LutRgbCube3d {
         for c in &self.rgb {
             let px: [f32; 4] = [c[0], c[1], c[2], 1.0];
             out.extend_from_slice(bytes_of(&px));
+        }
+        out
+    }
+
+    /// Packed `Rgba16Float` texels in the same volume order as
+    /// [`Self::rgba_bytes_volume_order`]: `8 × N³` bytes (RGBA as little-endian
+    /// [`half::f16`] per channel, alpha `1.0`).
+    ///
+    /// Prefer this for GPU upload with [`wgpu::TextureFormat::Rgba16Float`].
+    #[must_use]
+    pub(crate) fn rgba16f_bytes_volume_order(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.rgb.len().saturating_mul(8));
+        for c in &self.rgb {
+            for ch in [c[0], c[1], c[2], 1.0_f32] {
+                let h = f16::from_f32(ch);
+                out.extend_from_slice(&h.to_le_bytes());
+            }
         }
         out
     }

@@ -1,11 +1,12 @@
 //! Tests for the `lut_adobe_cube` module.
 
 use bytemuck::pod_read_unaligned;
+use half::f16;
 
 use super::types::lattice_xyz_for_sample_index;
 use super::{
     expected_lut_sample_count, parse_adobe_cube_bytes, parse_adobe_cube_str,
-    LutCubeParseError, LutRgbF32Cube3d,
+    LutCubeParseError, LutRgbCube3d,
 };
 
 #[test]
@@ -27,14 +28,14 @@ fn new_accepts_n2_corner_lut() {
         [1.0, 1.0, 1.0],
     ];
 
-    let lut = LutRgbF32Cube3d::new(2, rgb).expect("valid 2³ LUT");
+    let lut = LutRgbCube3d::new(2, rgb).expect("valid 2³ LUT");
     assert_eq!(lut.size, 2);
     assert_eq!(lut.rgb.len(), 8);
 }
 
 #[test]
 fn new_rejects_wrong_sample_count() {
-    let err = LutRgbF32Cube3d::new(2, vec![[0.0, 0.0, 0.0]])
+    let err = LutRgbCube3d::new(2, vec![[0.0, 0.0, 0.0]])
         .expect_err("too few samples");
 
     assert_eq!(
@@ -381,6 +382,23 @@ fn rgba_volume_helpers_match_minimal_n2_fixture() {
     let last = pod_read_unaligned::<[f32; 4]>(&bytes[8 * 16 - 16..8 * 16]);
     assert_eq!(first, [0.0, 0.0, 0.0, 1.0]);
     assert_eq!(last, [1.0, 1.0, 1.0, 1.0]);
+
+    let bytes16 = lut.rgba16f_bytes_volume_order();
+    assert_eq!(bytes16.len(), 8_usize.saturating_mul(8));
+    let first16 = [
+        f16::from_le_bytes([bytes16[0], bytes16[1]]),
+        f16::from_le_bytes([bytes16[2], bytes16[3]]),
+        f16::from_le_bytes([bytes16[4], bytes16[5]]),
+        f16::from_le_bytes([bytes16[6], bytes16[7]]),
+    ];
+    let last16 = [
+        f16::from_le_bytes([bytes16[56], bytes16[57]]),
+        f16::from_le_bytes([bytes16[58], bytes16[59]]),
+        f16::from_le_bytes([bytes16[60], bytes16[61]]),
+        f16::from_le_bytes([bytes16[62], bytes16[63]]),
+    ];
+    assert_eq!(first16.map(f16::to_f32), [0.0, 0.0, 0.0, 1.0]);
+    assert_eq!(last16.map(f16::to_f32), [1.0, 1.0, 1.0, 1.0]);
 }
 
 #[test]

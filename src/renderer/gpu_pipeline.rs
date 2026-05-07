@@ -7,6 +7,8 @@ use glam::{Mat4, Vec3};
 use crate::camera::controller::CameraController;
 use crate::camera::core::Camera;
 use crate::engine::positions::EntityPositions;
+use crate::error::VisoError;
+use crate::gpu::adobe_cube_lut::AdobeCubeLutTexture;
 use crate::gpu::lighting::Lighting;
 use crate::gpu::{RenderContext, ShaderComposer};
 use crate::options::{GeometryOptions, LightingOptions, VisoOptions};
@@ -23,6 +25,7 @@ use crate::renderer::pipeline::{SceneProcessor, SceneRequest};
 use crate::renderer::postprocess::post_process::PostProcessCamera;
 use crate::renderer::postprocess::PostProcessStack;
 use crate::renderer::{GeometryPassInput, Renderers};
+use crate::util::lut_adobe_cube::LutRgbCube3d;
 
 /// Borrowed scene chain data needed by [`GpuPipeline::upload_prepared`].
 pub(crate) struct SceneChainData<'a> {
@@ -61,6 +64,11 @@ pub(crate) struct GpuPipeline {
     /// maps, entity surfaces, cavities). The matching sender lives on
     /// [`crate::engine::surface_regen::SurfaceRegen`].
     pub(crate) density_rx: mpsc::Receiver<(Vec<IsosurfaceVertex>, Vec<u32>)>,
+    /// Optional Adobe `.cube` color LUT uploaded as an `Rgba32Float` volume
+    /// (PR3+ samples).
+    #[allow(dead_code)]
+    // Read when post-process binds the LUT texture (PR3).
+    pub(crate) adobe_cube_lut: Option<AdobeCubeLutTexture>,
 }
 
 impl GpuPipeline {
@@ -458,5 +466,26 @@ impl GpuPipeline {
     /// list for main-thread sidechain adjustment.
     pub(crate) fn backbone_sheet_offsets(&self) -> &[(u32, Vec3)] {
         self.renderers.backbone.sheet_offsets()
+    }
+
+    /// Load or unload an Adobe LUT as a GPU 3D `Rgba16Float` texture. Does not
+    /// affect rendering until shaders sample it (PR3).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisoError::GpuResource`] when [`LutRgbCube3d::size`]
+    /// exceeds the adapter's [`wgpu::Limits::max_texture_dimension_3d`].
+    #[allow(dead_code)] // First caller lands with options/UI or host hook (PR4).
+    pub(crate) fn set_adobe_cube_lut(
+        &mut self,
+        lut: Option<LutRgbCube3d>,
+    ) -> Result<(), VisoError> {
+        if let Some(parsed) = lut {
+            let gpu_lut = AdobeCubeLutTexture::try_new(&self.context, &parsed)?;
+            self.adobe_cube_lut = Some(gpu_lut);
+        } else {
+            self.adobe_cube_lut = None;
+        }
+        Ok(())
     }
 }
