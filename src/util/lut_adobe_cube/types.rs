@@ -81,19 +81,19 @@ impl LutRgbCube3d {
     /// RGBA texels (`A = 1.0`) in **volume upload order**: index `k` matches
     /// `.cube` file sample order and [`lattice_xyz_for_sample_index`].
     ///
-    /// Suitable for `TextureFormat::Rgba32Float` and PR2 `queue.write_texture`.
+    /// Suitable for `TextureFormat::Rgba32Float` and `queue.write_texture`.
     #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
-    pub(crate) fn rgba_f32_volume_texels(&self) -> Vec<[f32; 4]> {
+    pub(crate) fn rgba32f_volume_texels(&self) -> Vec<[f32; 4]> {
         self.rgb.iter().map(|c| [c[0], c[1], c[2], 1.0]).collect()
     }
 
     /// Raw bytes for a full `N×N×N` RGBA32F volume: `16 × N³` bytes,
     /// native-endian `f32`, order identical to
-    /// [`Self::rgba_f32_volume_texels`].
+    /// [`Self::rgba32f_volume_texels`].
     #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
-    pub(crate) fn rgba_bytes_volume_order(&self) -> Vec<u8> {
+    pub(crate) fn rgba32f_bytes_volume_order(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.rgb.len().saturating_mul(16));
         for c in &self.rgb {
             let px: [f32; 4] = [c[0], c[1], c[2], 1.0];
@@ -103,7 +103,7 @@ impl LutRgbCube3d {
     }
 
     /// Packed `Rgba16Float` texels in the same volume order as
-    /// [`Self::rgba_bytes_volume_order`]: `8 × N³` bytes (RGBA as little-endian
+    /// [`Self::rgba32f_bytes_volume_order`]: `8 × N³` bytes (RGBA as little-endian
     /// [`half::f16`] per channel, alpha `1.0`).
     ///
     /// Prefer this for GPU upload with [`wgpu::TextureFormat::Rgba16Float`].

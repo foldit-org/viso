@@ -370,12 +370,12 @@ fn rgba_volume_helpers_match_minimal_n2_fixture() {
                1\n1 1 1\n";
     let lut = parse_adobe_cube_str(src).expect("minimal N=2 LUT");
 
-    let texels = lut.rgba_f32_volume_texels();
+    let texels = lut.rgba32f_volume_texels();
     assert_eq!(texels.len(), 8);
     assert_eq!(texels[0], [0.0, 0.0, 0.0, 1.0]);
     assert_eq!(texels[7], [1.0, 1.0, 1.0, 1.0]);
 
-    let bytes = lut.rgba_bytes_volume_order();
+    let bytes = lut.rgba32f_bytes_volume_order();
     assert_eq!(bytes.len(), 8_usize.saturating_mul(16));
 
     let first = pod_read_unaligned::<[f32; 4]>(&bytes[0..16]);
