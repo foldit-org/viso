@@ -475,6 +475,26 @@ impl CameraController {
         center + right * (ndc_x * half_width) + up * (ndc_y * half_height)
     }
 
+    /// Project a world-space point to screen coordinates (pixels, origin
+    /// top-left). Returns `None` if the point is at or behind the camera.
+    pub(crate) fn world_to_screen(
+        &self,
+        world: Vec3,
+        viewport: UVec2,
+    ) -> Option<Vec2> {
+        let view_proj = self.camera.build_matrix();
+        let clip = view_proj * glam::Vec4::new(world.x, world.y, world.z, 1.0);
+        if clip.w <= 0.0 {
+            return None;
+        }
+        let ndc_x = clip.x / clip.w;
+        let ndc_y = clip.y / clip.w;
+        Some(Vec2::new(
+            (ndc_x + 1.0) * 0.5 * viewport.x as f32,
+            (1.0 - ndc_y) * 0.5 * viewport.y as f32,
+        ))
+    }
+
     /// Get the current view frustum for culling
     pub(crate) fn frustum(&self) -> Frustum {
         Frustum::from_view_projection(self.camera.build_matrix())

@@ -622,6 +622,26 @@ impl VisoEngine {
         )
     }
 
+    /// Find the heavy-atom in `residue` whose current world position
+    /// projects closest to `screen_pos` (pixels, origin top-left).
+    /// Returns the PDB atom name, or `None` if the residue can't be
+    /// resolved or has no heavy atoms.
+    #[must_use]
+    pub fn closest_atom_in_residue(
+        &self,
+        residue: u32,
+        screen_pos: (f32, f32),
+    ) -> Option<String> {
+        constraint::closest_atom_in_residue(
+            &self.scene,
+            &self.annotations,
+            &self.camera_controller,
+            self.viewport_size(),
+            residue,
+            glam::Vec2::new(screen_pos.0, screen_pos.1),
+        )
+    }
+
     /// Number of entities currently in the scene.
     #[must_use]
     pub fn entity_count(&self) -> usize {
