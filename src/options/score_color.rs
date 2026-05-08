@@ -9,8 +9,18 @@
 //! - **Relative** (`score_relative`): 5th/95th percentile normalization.
 
 /// Absolute energy thresholds in REU.
-const GOOD_THRESHOLD: f64 = -4.0;
-const BAD_THRESHOLD: f64 = 4.0;
+///
+/// Calibrated against Foldit's per-residue distribution, not pure REU
+/// "good vs. bad" intuition: even a healthy starting structure tends to
+/// sit at a small positive mean per residue (e.g. ~3 REU), with isolated
+/// clashes spiking into the tens. The previous `[-4, +4]` window
+/// saturated every typical residue to red and erased the gradient on
+/// puzzles where total game score had already crossed the pass line.
+/// `[-2, +20]` keeps clearly-good residues green, places typical
+/// residues in the yellow/orange band, and reserves saturated red for
+/// genuine clashes.
+const GOOD_THRESHOLD: f64 = -2.0;
+const BAD_THRESHOLD: f64 = 20.0;
 
 /// Absolute mode: map a per-residue energy (REU) to [0, 1] using fixed
 /// thresholds.
