@@ -64,8 +64,7 @@ pub(crate) struct GpuPipeline {
     /// maps, entity surfaces, cavities). The matching sender lives on
     /// [`crate::engine::surface_regen::SurfaceRegen`].
     pub(crate) density_rx: mpsc::Receiver<(Vec<IsosurfaceVertex>, Vec<u32>)>,
-    /// Optional Adobe `.cube` color LUT uploaded as an `Rgba32Float` volume
-    /// (PR3+ samples).
+    /// Optional Adobe `.cube` color LUT uploaded as `Rgba16Float` (PR3+ samples).
     #[allow(dead_code)]
     // Read when post-process binds the LUT texture (PR3).
     pub(crate) adobe_cube_lut: Option<AdobeCubeLutTexture>,
@@ -475,7 +474,6 @@ impl GpuPipeline {
     ///
     /// Returns [`VisoError::GpuResource`] when [`LutRgbCube3d::size`]
     /// exceeds the adapter's [`wgpu::Limits::max_texture_dimension_3d`].
-    #[allow(dead_code)] // First caller lands with options/UI or host hook (PR4).
     pub(crate) fn set_adobe_cube_lut(
         &mut self,
         lut: Option<LutRgbCube3d>,

@@ -2,23 +2,37 @@
 
 use crate::VisoError;
 
-#[allow(dead_code)]
+/// Failure modes while parsing or validating an Adobe ASCII `.cube` LUT.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum LutCubeParseError {
+pub enum LutCubeParseError {
     /// No `LUT_3D_SIZE` header line was found after preprocessing.
     MissingLutSize,
 
     /// A non-metadata line before samples was not exactly `LUT_3D_SIZE N`.
-    InvalidLutSizeLine { line: usize },
+    InvalidLutSizeLine {
+        /// 1-based source line number.
+        line: usize,
+    },
 
     /// N outside 2..=256 or N³ not fit in usize.
-    InvalidLutSize { size: u32 },
+    InvalidLutSize {
+        /// Declared or inferred grid length `N`.
+        size: u32,
+    },
 
     /// RGB sample line not exactly three finite floats.
-    MalformedRgbLine { line: usize },
+    MalformedRgbLine {
+        /// 1-based source line number.
+        line: usize,
+    },
 
     /// RGB sample count differs from N³.
-    WrongRgbCount { expected: usize, actual: usize },
+    WrongRgbCount {
+        /// Expected count (`N³`).
+        expected: usize,
+        /// Actual RGB triplets parsed.
+        actual: usize,
+    },
 
     /// Input bytes are not valid UTF-8 (byte entrypoint only).
     InvalidUtf8,

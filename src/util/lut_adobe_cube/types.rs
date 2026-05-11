@@ -9,12 +9,12 @@ use super::LutCubeParseError;
 /// In-memory RGB samples for a 3D LUT with edge length [`Self::size`] (`N` in
 /// `LUT_3D_SIZE N`).
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct LutRgbCube3d {
+pub struct LutRgbCube3d {
     /// Grid dimension `N` (`LUT_3D_SIZE N`).
-    pub(crate) size: u32,
+    pub size: u32,
     /// Flattened RGB triplets in file order; length must equal `size³` for a
     /// valid LUT.
-    pub(crate) rgb: Vec<[f32; 3]>,
+    pub rgb: Vec<[f32; 3]>,
 }
 
 /// Maps Adobe `.cube` sample index `k` to 3D lattice coordinates `(x, y, z)`
@@ -59,7 +59,7 @@ impl LutRgbCube3d {
     /// Returns [`LutCubeParseError`] when `size` is outside `2..=MAX_SIZE`,
     /// when `size³` does not fit in [`usize`], or when the RGB sample count
     /// is wrong.
-    pub(crate) fn new(
+    pub fn new(
         size: u32,
         rgb: Vec<[f32; 3]>,
     ) -> Result<Self, LutCubeParseError> {
@@ -122,7 +122,7 @@ impl LutRgbCube3d {
 
 /// Returns 'size³' as [`usize`] if fits; otherwise [`None`].
 #[must_use]
-pub(crate) fn expected_lut_sample_count(size: u32) -> Option<usize> {
+pub fn expected_lut_sample_count(size: u32) -> Option<usize> {
     let n = usize::try_from(size).ok()?;
     n.checked_mul(n)?.checked_mul(n)
 }

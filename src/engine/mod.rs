@@ -35,6 +35,7 @@ use crate::camera;
 use crate::camera::controller::CameraController;
 use crate::options::VisoOptions;
 use crate::renderer::GpuPipeline;
+use crate::VisoError;
 
 /// Stored constraint specifications (bands + pull), resolved to world-space
 /// each frame.
@@ -217,6 +218,21 @@ impl VisoEngine {
             self.gpu.resize(width, height);
             self.camera_controller.resize(width, height);
         }
+    }
+
+    /// Upload or clear an Adobe ASCII `.cube` 3D LUT on the GPU (`Rgba16Float`).
+    ///
+    /// Rendering is unchanged until post-process shaders sample the texture (PR3).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisoError::GpuResource`] if `lut.size` exceeds
+    /// [`wgpu::Limits::max_texture_dimension_3d`].
+    pub fn set_adobe_cube_lut(
+        &mut self,
+        lut: Option<crate::LutRgbCube3d>,
+    ) -> Result<(), VisoError> {
+        self.gpu.set_adobe_cube_lut(lut)
     }
 }
 

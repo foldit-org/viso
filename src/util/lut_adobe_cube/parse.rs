@@ -7,9 +7,11 @@ use super::{expected_lut_sample_count, LutCubeParseError, LutRgbCube3d};
 /// `DOMAIN_*`, strips a leading BOM, then expects `LUT_3D_SIZE N` and `N³` RGB
 /// lines (three finite floats each).
 ///
-/// Errors: see [`LutCubeParseError`].
-#[allow(dead_code)] // Not called from production code yet.
-pub(crate) fn parse_adobe_cube_str(
+/// # Errors
+///
+/// Returns [`LutCubeParseError`] when the text does not match the supported
+/// `.cube` subset (missing header, wrong sample count, malformed floats, etc.).
+pub fn parse_adobe_cube_str(
     input: &str,
 ) -> Result<LutRgbCube3d, LutCubeParseError> {
     let input = input.strip_prefix('\u{FEFF}').unwrap_or(input);
@@ -70,10 +72,13 @@ pub(crate) fn parse_adobe_cube_str(
     LutRgbCube3d::new(lut_sz, rgb)
 }
 
-/// UTF-8 bytes → [`parse_adobe_cube_str`]. Wrong encoding →
-/// [`LutCubeParseError::InvalidUtf8`].
-#[allow(dead_code)] // Not called from production code yet.
-pub(crate) fn parse_adobe_cube_bytes(
+/// UTF-8 bytes → [`parse_adobe_cube_str`].
+///
+/// # Errors
+///
+/// Returns [`LutCubeParseError::InvalidUtf8`] if `input` is not valid UTF-8,
+/// or any error from [`parse_adobe_cube_str`] otherwise.
+pub fn parse_adobe_cube_bytes(
     input: &[u8],
 ) -> Result<LutRgbCube3d, LutCubeParseError> {
     let text = std::str::from_utf8(input)

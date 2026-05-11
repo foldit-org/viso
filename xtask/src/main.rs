@@ -25,8 +25,7 @@ fn main() -> Result<()> {
 }
 
 /// WASM rustflags for multithreaded viso (SharedArrayBuffer + web workers).
-const WASM_RUSTFLAGS: &str =
-    "\
+const WASM_RUSTFLAGS: &str = "\
     -C target-feature=+atomics,+bulk-memory,+mutable-globals -C \
      link-arg=--shared-memory -C link-arg=--import-memory -C \
      link-arg=--max-memory=1073741824 -C link-arg=--export=__wasm_init_tls -C \
