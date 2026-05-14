@@ -4,6 +4,7 @@
 //! combining them to produce the final image with ambient occlusion and
 //! silhouette outlines applied.
 
+use half::f16;
 use wgpu::util::DeviceExt;
 
 use super::screen_pass::{run_screen_pass, ScreenPass, ScreenPassDesc};
@@ -11,7 +12,7 @@ use crate::error::VisoError;
 use crate::gpu::pipeline_helpers::{
     create_render_texture, create_screen_space_pipeline, depth_texture_2d,
     filtering_sampler, linear_sampler, non_filtering_sampler, texture_2d,
-    uniform_buffer, ScreenSpacePipelineDef,
+    texture_3d_float, uniform_buffer, ScreenSpacePipelineDef,
 };
 use crate::gpu::{RenderContext, Shader, ShaderComposer};
 
@@ -90,6 +91,9 @@ struct CompositeViews<'a> {
     pub sampler: &'a wgpu::Sampler,
     pub depth_sampler: &'a wgpu::Sampler,
     pub params_buffer: &'a wgpu::Buffer,
+    /// Placeholder 3D LUT (`1³`); PR3+ may swap the bound view.
+    pub adobe_lut_tex: &'a wgpu::TextureView,
+    pub adobe_lut_sampler: &'a wgpu::Sampler,
 }
 
 /// Composite pass renderer
@@ -116,6 +120,13 @@ pub(crate) struct CompositePass {
     normal_view: wgpu::TextureView,
     /// Stored bloom view for bind group recreation on resize.
     bloom_view: wgpu::TextureView,
+
+    /// `1³` `Rgba16Float` volume reserved for Adobe LUT bindings (B1 placeholder).
+    #[allow(dead_code)]
+    adobe_lut_dummy_texture: wgpu::Texture,
+    adobe_lut_dummy_view: wgpu::TextureView,
+    /// Linear + clamp sampler for [`Self::adobe_lut_dummy_view`] (and future LUT).
+    adobe_lut_sampler: wgpu::Sampler,
 
     /// Composite effect parameters (outline, AO, fog, tone-mapping).
     pub(crate) params: CompositeParams,
@@ -153,6 +164,10 @@ impl CompositePass {
             },
         );
 
+        let (adobe_lut_dummy_texture, adobe_lut_dummy_view) =
+            Self::create_adobe_lut_dummy_3d(context);
+        let adobe_lut_sampler = Self::create_adobe_lut_sampler(context);
+
         let bind_group_layout = Self::create_bind_group_layout(context);
 
         let bind_group = Self::create_bind_group(
@@ -167,6 +182,8 @@ impl CompositePass {
                 sampler: &sampler,
                 depth_sampler: &depth_sampler,
                 params_buffer: &params_buffer,
+                adobe_lut_tex: &adobe_lut_dummy_view,
+                adobe_lut_sampler: &adobe_lut_sampler,
             },
         );
 
@@ -189,10 +206,75 @@ impl CompositePass {
             depth_view: inputs.depth.clone(),
             normal_view: inputs.normal.clone(),
             bloom_view: inputs.bloom.clone(),
+            adobe_lut_dummy_texture,
+            adobe_lut_dummy_view,
+            adobe_lut_sampler,
             params,
             params_buffer,
             width,
             height,
+        })
+    }
+
+    /// Upload a neutral `1³` `Rgba16Float` volume for Adobe LUT binding slot 8.
+    fn create_adobe_lut_dummy_3d(
+        context: &RenderContext,
+    ) -> (wgpu::Texture, wgpu::TextureView) {
+        let extent = wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        };
+        let texture = context.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Composite Adobe LUT dummy (1³)"),
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("Composite Adobe LUT dummy view"),
+            dimension: Some(wgpu::TextureViewDimension::D3),
+            mip_level_count: Some(1),
+            ..Default::default()
+        });
+        let one = f16::from_f32(1.0).to_le_bytes();
+        let mut px = [0u8; 8];
+        for ch in 0..4 {
+            px[ch * 2..ch * 2 + 2].copy_from_slice(&one);
+        }
+        context.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &px,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(8),
+                rows_per_image: Some(1),
+            },
+            extent,
+        );
+        (texture, view)
+    }
+
+    fn create_adobe_lut_sampler(context: &RenderContext) -> wgpu::Sampler {
+        context.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Composite Adobe LUT sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            ..Default::default()
         })
     }
 
@@ -227,6 +309,8 @@ impl CompositePass {
                     uniform_buffer(5),
                     texture_2d(6),
                     texture_2d(7),
+                    texture_3d_float(8),
+                    filtering_sampler(9),
                 ],
             },
         )
@@ -318,6 +402,18 @@ impl CompositePass {
                         binding: 7,
                         resource: wgpu::BindingResource::TextureView(
                             views.bloom,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
+                        resource: wgpu::BindingResource::TextureView(
+                            views.adobe_lut_tex,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 9,
+                        resource: wgpu::BindingResource::Sampler(
+                            views.adobe_lut_sampler,
                         ),
                     },
                 ],
@@ -428,6 +524,8 @@ impl ScreenPass for CompositePass {
                 sampler: &self.sampler,
                 depth_sampler: &self.depth_sampler,
                 params_buffer: &self.params_buffer,
+                adobe_lut_tex: &self.adobe_lut_dummy_view,
+                adobe_lut_sampler: &self.adobe_lut_sampler,
             },
         );
     }
