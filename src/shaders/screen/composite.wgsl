@@ -37,6 +37,9 @@ struct CompositeParams {
 @group(0) @binding(5) var<uniform> params: CompositeParams;
 @group(0) @binding(6) var normal_texture: texture_2d<f32>;
 @group(0) @binding(7) var bloom_texture: texture_2d<f32>;
+// Adobe `.cube` 3D LUT (B1: placeholder bind only; no grading yet).
+@group(0) @binding(8) var adobe_lut_tex: texture_3d<f32>;
+@group(0) @binding(9) var adobe_lut_sampler: sampler;
 
 // Full-screen triangle (more efficient than quad - no diagonal edge)
 @vertex
@@ -157,6 +160,10 @@ fn fs_main(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     final_color = final_color * params.exposure;
     final_color = tonemap_pbr_neutral(final_color);
     final_color = pow(final_color, vec3<f32>(params.gamma));
+
+    // Touch LUT bindings without changing output (coefficient is always 0).
+    final_color = final_color + vec3<f32>(0.0)
+        * textureSampleLevel(adobe_lut_tex, adobe_lut_sampler, vec3<f32>(0.5), 0.0).rgb;
 
     return vec4<f32>(final_color, color.a);
 }
