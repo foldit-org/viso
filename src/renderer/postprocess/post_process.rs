@@ -153,6 +153,16 @@ impl PostProcessStack {
         self.fxaa_pass.render(encoder);
     }
 
+    /// Rebind composite LUT after [`crate::renderer::GpuPipeline`] load/unload
+    /// or window resize.
+    pub(crate) fn sync_adobe_cube_lut(
+        &mut self,
+        context: &RenderContext,
+        lut: Option<&crate::gpu::adobe_cube_lut::AdobeCubeLutTexture>,
+    ) {
+        self.composite_pass.sync_adobe_cube_lut(context, lut);
+    }
+
     /// Update fog uniforms.
     pub(crate) fn update_fog(
         &mut self,
