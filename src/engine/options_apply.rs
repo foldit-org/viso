@@ -133,6 +133,49 @@ impl VisoEngine {
     /// Push post-processing options to the composite pass.
     pub(super) fn apply_post_processing(&mut self) {
         self.gpu.apply_post_processing(&self.options);
+        if let Err(e) = self.apply_adobe_cube_lut_from_options() {
+            log::warn!("Adobe cube LUT from options: {e}");
+        }
+    }
+
+    /// Load or clear the composite LUT from
+    /// [`crate::options::PostProcessingOptions::adobe_cube_lut_path`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::VisoError::Io`] or parse/GPU errors when a path is set
+    /// on native targets. On wasm, paths are ignored (use
+    /// [`VisoEngine::set_adobe_cube_lut_from_bytes`] instead).
+    pub(super) fn apply_adobe_cube_lut_from_options(
+        &mut self,
+    ) -> Result<(), crate::VisoError> {
+        let path = self
+            .options
+            .post_processing
+            .adobe_cube_lut_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
+        let Some(path) = path else {
+            return self.clear_adobe_cube_lut();
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let bytes = std::fs::read(path).map_err(crate::VisoError::Io)?;
+            self.set_adobe_cube_lut_from_bytes(&bytes)
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = path;
+            log::warn!(
+                "post_processing.adobe_cube_lut_path is ignored on wasm; \
+                 use set_adobe_cube_lut_from_bytes"
+            );
+            Ok(())
+        }
     }
 
     /// Push camera options to the controller.
