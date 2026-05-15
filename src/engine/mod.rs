@@ -34,7 +34,7 @@ use crate::animation::AnimationState;
 use crate::camera::controller::CameraController;
 use crate::options::VisoOptions;
 use crate::renderer::GpuPipeline;
-use crate::{camera, VisoError};
+use crate::{camera, parse_adobe_cube_bytes, parse_adobe_cube_str, VisoError};
 
 /// Stored constraint specifications (bands + pull), resolved to world-space
 /// each frame.
@@ -234,6 +234,40 @@ impl VisoEngine {
         lut: Option<crate::LutRgbCube3d>,
     ) -> Result<(), VisoError> {
         self.gpu.set_adobe_cube_lut(lut)
+    }
+
+    /// Parse Adobe `.cube` UTF-8 text and upload it as the active composite LUT.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisoError::OptionsParse`] on parse failure, or
+    /// [`VisoError::GpuResource`] if the LUT exceeds device 3D texture limits.
+    pub fn set_adobe_cube_lut_from_str(&mut self, cube: &str) -> Result<(), VisoError> {
+        let lut = parse_adobe_cube_str(cube)?;
+        self.set_adobe_cube_lut(Some(lut))
+    }
+
+    /// Parse Adobe `.cube` bytes (UTF-8) and upload it as the active composite LUT.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisoError::OptionsParse`] on parse failure, or
+    /// [`VisoError::GpuResource`] if the LUT exceeds device 3D texture limits.
+    pub fn set_adobe_cube_lut_from_bytes(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<(), VisoError> {
+        let lut = parse_adobe_cube_bytes(bytes)?;
+        self.set_adobe_cube_lut(Some(lut))
+    }
+
+    /// Clear the active Adobe LUT and disable composite grading.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisoError::GpuResource`] if rebinding the composite pass fails.
+    pub fn clear_adobe_cube_lut(&mut self) -> Result<(), VisoError> {
+        self.set_adobe_cube_lut(None)
     }
 }
 
