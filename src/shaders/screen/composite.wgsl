@@ -3,6 +3,7 @@
 #import viso::fullscreen::{FullscreenVertexOutput, fullscreen_vertex}
 #import viso::depth::linearize_depth
 #import viso::constants::LUMINANCE_REC709
+#import viso::lut_cube::{apply_adobe_cube_lut}
 
 // Load raw depth via textureLoad (bypasses sampler — works on Vulkan and GL/GLES)
 fn load_depth(uv: vec2<f32>) -> f32 {
@@ -26,7 +27,8 @@ struct CompositeParams {
     bloom_intensity: f32,
     _pad: f32,
     _pad2: f32,
-    _pad3: f32,
+    /// `LUT_3D_SIZE` when grading; `0` skips LUT sampling.
+    adobe_lut_grid_size: u32,
 };
 
 @group(0) @binding(0) var color_texture: texture_2d<f32>;
@@ -37,7 +39,7 @@ struct CompositeParams {
 @group(0) @binding(5) var<uniform> params: CompositeParams;
 @group(0) @binding(6) var normal_texture: texture_2d<f32>;
 @group(0) @binding(7) var bloom_texture: texture_2d<f32>;
-// Adobe `.cube` 3D LUT (B1: placeholder bind only; no grading yet).
+// Adobe `.cube` 3D LUT (B1 placeholder bind; B2+ samples when `adobe_lut_grid_size > 0`).
 @group(0) @binding(8) var adobe_lut_tex: texture_3d<f32>;
 @group(0) @binding(9) var adobe_lut_sampler: sampler;
 
@@ -161,9 +163,14 @@ fn fs_main(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     final_color = tonemap_pbr_neutral(final_color);
     final_color = pow(final_color, vec3<f32>(params.gamma));
 
-    // Touch LUT bindings without changing output (coefficient is always 0).
-    final_color = final_color + vec3<f32>(0.0)
-        * textureSampleLevel(adobe_lut_tex, adobe_lut_sampler, vec3<f32>(0.5), 0.0).rgb;
+    if (params.adobe_lut_grid_size > 0u) {
+        final_color = apply_adobe_cube_lut(
+            adobe_lut_tex,
+            adobe_lut_sampler,
+            final_color,
+            params.adobe_lut_grid_size,
+        );
+    }
 
     return vec4<f32>(final_color, color.a);
 }

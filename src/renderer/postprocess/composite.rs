@@ -56,8 +56,8 @@ pub(crate) struct CompositeParams {
     pub(crate) _pad: f32,
     /// Padding for GPU alignment.
     pub(crate) _pad2: f32,
-    /// Padding for GPU alignment.
-    pub(crate) _pad3: f32,
+    /// Adobe `.cube` grid edge `N`; `0` skips LUT sampling (see composite WGSL).
+    pub(crate) adobe_lut_grid_size: u32,
 }
 
 impl Default for CompositeParams {
@@ -77,7 +77,7 @@ impl Default for CompositeParams {
             bloom_intensity: 0.0,
             _pad: 0.0,
             _pad2: 0.0,
-            _pad3: 0.0,
+            adobe_lut_grid_size: 0,
         }
     }
 }
