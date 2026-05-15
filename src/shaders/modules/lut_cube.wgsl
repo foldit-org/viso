@@ -16,9 +16,10 @@ fn lut_texcoord(rgb01: vec3<f32>, lut_size: u32) -> vec3<f32> {
     return (scaled + vec3<f32>(0.5)) / n;
 }
 
-// Apply an Adobe `.cube` LUT stored in a 3D Rgba16Float texture.
+// Apply an Adobe `.cube` LUT stored in a 3D `rgba16float` texture (sampled as
+// `texture_3d<f32>` without `enable f16`).
 fn apply_adobe_cube_lut(
-    lut_tex: texture_3d<f16>,
+    lut_tex: texture_3d<f32>,
     lut_sampler: sampler,
     rgb01: vec3<f32>,
     lut_size: u32,
@@ -30,7 +31,7 @@ fn apply_adobe_cube_lut(
 // Convenience passthrough wrapper for call sites that gate LUT application.
 fn apply_adobe_cube_lut_if_enabled(
     enabled: bool,
-    lut_tex: texture_3d<f16>,
+    lut_tex: texture_3d<f32>,
     lut_sampler: sampler,
     rgb01: vec3<f32>,
     lut_size: u32,
@@ -40,4 +41,3 @@ fn apply_adobe_cube_lut_if_enabled(
     }
     return rgb01;
 }
-
