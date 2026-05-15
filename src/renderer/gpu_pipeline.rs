@@ -64,10 +64,8 @@ pub(crate) struct GpuPipeline {
     /// maps, entity surfaces, cavities). The matching sender lives on
     /// [`crate::engine::surface_regen::SurfaceRegen`].
     pub(crate) density_rx: mpsc::Receiver<(Vec<IsosurfaceVertex>, Vec<u32>)>,
-    /// Optional Adobe `.cube` color LUT uploaded as `Rgba16Float` (PR3+
-    /// samples).
-    #[allow(dead_code)]
-    // Read when post-process binds the LUT texture (PR3).
+    /// Optional Adobe `.cube` color LUT uploaded as `Rgba16Float`; composite
+    /// binds and samples it when set via [`GpuPipeline::set_adobe_cube_lut`].
     pub(crate) adobe_cube_lut: Option<AdobeCubeLutTexture>,
 }
 
@@ -139,6 +137,7 @@ impl GpuPipeline {
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         self.context.resize(width, height);
         self.post_process.resize(&self.context);
+        self.sync_composite_adobe_cube_lut();
         self.renderers.isosurface.set_back_face_depth_view(
             &self.context.device,
             &self.post_process.backface_depth_view,
@@ -146,6 +145,13 @@ impl GpuPipeline {
         self.pick
             .picking
             .resize(&self.context.device, width, height);
+    }
+
+    fn sync_composite_adobe_cube_lut(&mut self) {
+        self.post_process.sync_adobe_cube_lut(
+            &self.context,
+            self.adobe_cube_lut.as_ref(),
+        );
     }
 
     /// Upload prepared scene geometry to GPU renderers.
@@ -468,8 +474,8 @@ impl GpuPipeline {
         self.renderers.backbone.sheet_offsets()
     }
 
-    /// Load or unload an Adobe LUT as a GPU 3D `Rgba16Float` texture. Does not
-    /// affect rendering until shaders sample it (PR3).
+    /// Load or unload an Adobe LUT as a GPU 3D `Rgba16Float` texture and sync
+    /// the composite pass bind group and grid uniform.
     ///
     /// # Errors
     ///
@@ -485,6 +491,7 @@ impl GpuPipeline {
         } else {
             self.adobe_cube_lut = None;
         }
+        self.sync_composite_adobe_cube_lut();
         Ok(())
     }
 }
