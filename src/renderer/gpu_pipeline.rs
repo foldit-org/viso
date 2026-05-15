@@ -486,10 +486,13 @@ impl GpuPipeline {
         lut: Option<LutRgbCube3d>,
     ) -> Result<(), VisoError> {
         if let Some(parsed) = lut {
+            let n = parsed.size;
             let gpu_lut = AdobeCubeLutTexture::try_new(&self.context, &parsed)?;
             self.adobe_cube_lut = Some(gpu_lut);
+            log::info!("Adobe cube LUT active (LUT_3D_SIZE {n})");
         } else {
             self.adobe_cube_lut = None;
+            log::info!("Adobe cube LUT cleared");
         }
         self.sync_composite_adobe_cube_lut();
         Ok(())

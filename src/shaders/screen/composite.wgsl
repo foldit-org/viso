@@ -161,8 +161,8 @@ fn fs_main(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // === STEP 5: HDR tone mapping + exposure ===
     final_color = final_color * params.exposure;
     final_color = tonemap_pbr_neutral(final_color);
-    final_color = pow(final_color, vec3<f32>(params.gamma));
 
+    // Grade in display-linear space before gamma (typical for Adobe `.cube` LUTs).
     if (params.adobe_lut_grid_size > 0u) {
         final_color = apply_adobe_cube_lut(
             adobe_lut_tex,
@@ -171,6 +171,8 @@ fn fs_main(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
             params.adobe_lut_grid_size,
         );
     }
+
+    final_color = pow(final_color, vec3<f32>(params.gamma));
 
     return vec4<f32>(final_color, color.a);
 }

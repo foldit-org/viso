@@ -426,9 +426,15 @@ fn parse_and_load(
     } else if ext.eq_ignore_ascii_case("cube") {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read LUT file: {e}"))?;
+        engine.options.post_processing.adobe_cube_lut_path =
+            Some(path.to_owned());
         engine
             .set_adobe_cube_lut_from_str(&text)
             .map_err(|e| format!("LUT error: {e}"))?;
+        log::info!(
+            "Adobe cube LUT loaded (grid size from file; path recorded in \
+             options)"
+        );
         Ok(())
     } else {
         use molex::adapters::pdb::structure_file_to_entities;

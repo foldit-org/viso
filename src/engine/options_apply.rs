@@ -141,6 +141,10 @@ impl VisoEngine {
     /// Load or clear the composite LUT from
     /// [`crate::options::PostProcessingOptions::adobe_cube_lut_path`].
     ///
+    /// - `None` — leave the current GPU LUT unchanged (Browse/API loads).
+    /// - `Some("")` — clear the LUT.
+    /// - `Some(path)` — load from disk (native only).
+    ///
     /// # Errors
     ///
     /// Returns [`crate::VisoError::Io`] or parse/GPU errors when a path is set
@@ -154,12 +158,16 @@ impl VisoEngine {
             .post_processing
             .adobe_cube_lut_path
             .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+            .map(str::trim);
 
         let Some(path) = path else {
-            return self.clear_adobe_cube_lut();
+            // `None` = no path configured; keep a LUT loaded via Browse / API.
+            return Ok(());
         };
+
+        if path.is_empty() {
+            return self.clear_adobe_cube_lut();
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
