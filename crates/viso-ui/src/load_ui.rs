@@ -88,7 +88,7 @@ pub fn LoadPanel(load_status: Signal<Option<Value>>) -> Element {
                     "Browse..."
                 }
                 div { class: "field-label", style: "margin-top: 6px;",
-                    "Accepts .cif, .pdb"
+                    "Accepts .cif, .pdb, .cube (color LUT)"
                 }
             }
 
