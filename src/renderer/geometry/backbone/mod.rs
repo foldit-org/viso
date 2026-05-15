@@ -7,7 +7,7 @@
 pub(crate) mod mesh;
 pub(crate) mod path;
 pub(crate) mod profile;
-pub(crate) mod sheet_fit;
+pub(crate) mod sheet_trace;
 pub(crate) mod spline;
 
 use glam::Vec3;
@@ -57,6 +57,7 @@ use crate::gpu::dynamic_buffer::DynamicBuffer;
 use crate::gpu::{RenderContext, Shader, ShaderComposer};
 use crate::options::GeometryOptions;
 use crate::renderer::draw_context::DrawBindGroups;
+use crate::renderer::entity_topology::ProteinBackboneChain;
 use crate::renderer::mesh::{create_mesh_pipeline, MeshPass, MeshPipelineDef};
 use crate::util::hash::hash_vec3_slices;
 
@@ -110,9 +111,10 @@ pub(crate) fn backbone_vertex_buffer_layout(
 
 // ==================== INPUT DATA ====================
 
-/// Paired backbone chain input (protein CA/N/C triples + nucleic acid P atoms).
+/// Paired backbone chain input — protein chains (SoA backbone atoms) +
+/// nucleic acid P-atom chains.
 pub(crate) struct ChainPair<'a> {
-    pub(crate) protein: &'a [Vec<Vec3>],
+    pub(crate) protein: &'a [ProteinBackboneChain],
     pub(crate) na: &'a [Vec<Vec3>],
 }
 
@@ -127,7 +129,7 @@ pub(crate) struct PreparedBackboneData<'a> {
     pub(crate) ribbon_index_count: u32,
     pub(crate) sheet_offsets: Vec<(u32, Vec3)>,
     pub(crate) chain_ranges: Vec<ChainRange>,
-    pub(crate) cached_chains: &'a [Vec<Vec3>],
+    pub(crate) cached_chains: &'a [ProteinBackboneChain],
     pub(crate) cached_na_chains: &'a [Vec<Vec3>],
 }
 
@@ -139,7 +141,7 @@ pub(crate) struct BackboneRenderer {
     ribbon_pass: MeshPass,
     vertex_buffer: DynamicBuffer,
     last_hash: u64,
-    cached_chains: Vec<Vec<Vec3>>,
+    cached_chains: Vec<ProteinBackboneChain>,
     cached_na_chains: Vec<Vec<Vec3>>,
     sheet_offsets: Vec<(u32, Vec3)>,
     chain_ranges: Vec<ChainRange>,
@@ -302,7 +304,7 @@ impl BackboneRenderer {
 
     pub(crate) fn update_metadata(
         &mut self,
-        cached_chains: &[Vec<Vec3>],
+        cached_chains: &[ProteinBackboneChain],
         cached_na_chains: &[Vec<Vec3>],
     ) {
         self.cached_chains.clear();
@@ -354,7 +356,7 @@ impl BackboneRenderer {
     pub(crate) fn sheet_offsets(&self) -> &[(u32, Vec3)] {
         &self.sheet_offsets
     }
-    pub(crate) fn cached_chains(&self) -> &[Vec<Vec3>] {
+    pub(crate) fn cached_chains(&self) -> &[ProteinBackboneChain] {
         &self.cached_chains
     }
     pub(crate) fn cached_na_chains(&self) -> &[Vec<Vec3>] {
@@ -403,7 +405,6 @@ impl BackboneRenderer {
         chains: &ChainPair,
         ss_override: Option<&[SSType]>,
         per_residue_colors: Option<&[[f32; 3]]>,
-        sheet_plane_normals: &[(u32, Vec3)],
         geo: &GeometryOptions,
         per_chain_lod: Option<&[(usize, usize)]>,
         na_residue_colors: Option<&[[f32; 3]]>,
@@ -412,7 +413,6 @@ impl BackboneRenderer {
             chains,
             ss_override,
             per_residue_colors,
-            sheet_plane_normals,
             geo,
             per_chain_lod,
             na_residue_colors,
@@ -435,11 +435,22 @@ fn new_buffer<T: bytemuck::Pod>(
     }
 }
 
-fn combined_hash(protein_chains: &[Vec<Vec3>], na_chains: &[Vec<Vec3>]) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
+fn combined_hash(
+    protein_chains: &[ProteinBackboneChain],
+    na_chains: &[Vec<Vec3>],
+) -> u64 {
     use std::hash::{Hash, Hasher};
-    let mut h = DefaultHasher::new();
-    hash_vec3_slices(protein_chains).hash(&mut h);
+
+    use rustc_hash::FxHasher;
+
+    use crate::util::hash::hash_vec3_slice_summary;
+    let mut h = FxHasher::default();
+    // Hash CA positions per protein chain — sufficient to detect mesh
+    // rebuilds; N/C/O move alongside CA so CA alone is a reliable proxy.
+    protein_chains.len().hash(&mut h);
+    for chain in protein_chains {
+        hash_vec3_slice_summary(&chain.ca, &mut h);
+    }
     hash_vec3_slices(na_chains).hash(&mut h);
     h.finish()
 }

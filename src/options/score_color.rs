@@ -46,7 +46,7 @@ fn score_to_t_absolute(score: f64) -> f32 {
 /// by [`ColorScheme::Entity`](super::ColorScheme::Entity) so every entity
 /// gets a distinct categorical color.
 pub(crate) fn compute_per_residue_colors_styled(
-    backbone_chains: &[Vec<glam::Vec3>],
+    backbone_chains: &[crate::renderer::entity_topology::ProteinBackboneChain],
     ss_types: &[molex::SSType],
     per_residue_scores: &[Option<&[f64]>],
     scheme: &super::ColorScheme,
@@ -161,7 +161,7 @@ fn per_residue_score_colors_relative_with_palette(
 
 /// N→C gradient per chain using the palette.
 fn per_chain_gradient(
-    backbone_chains: &[Vec<glam::Vec3>],
+    backbone_chains: &[crate::renderer::entity_topology::ProteinBackboneChain],
     residue_count: usize,
     palette: &super::palette::Palette,
 ) -> Vec<[f32; 3]> {
@@ -170,7 +170,7 @@ fn per_chain_gradient(
     }
     let mut colors = Vec::with_capacity(residue_count);
     for chain in backbone_chains {
-        let n_residues = chain.len() / 3;
+        let n_residues = chain.ca.len();
         if n_residues == 0 {
             continue;
         }
@@ -190,7 +190,7 @@ fn per_chain_gradient(
 /// gets the same `palette.categorical_color(entity_index)`.
 fn per_entity_color(
     entity_index: usize,
-    backbone_chains: &[Vec<glam::Vec3>],
+    backbone_chains: &[crate::renderer::entity_topology::ProteinBackboneChain],
     residue_count: usize,
     palette: &super::palette::Palette,
 ) -> Vec<[f32; 3]> {
@@ -200,6 +200,6 @@ fn per_entity_color(
     }
     backbone_chains
         .iter()
-        .flat_map(|chain| std::iter::repeat_n(color, chain.len() / 3))
+        .flat_map(|chain| std::iter::repeat_n(color, chain.ca.len()))
         .collect()
 }

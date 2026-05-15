@@ -105,9 +105,6 @@ pub(crate) struct FullRebuildEntity {
     /// Per-residue vertex colors for Cartoon-mode protein entities.
     /// `None` when the current color scheme produces no per-residue colors.
     pub(crate) per_residue_colors: Option<Vec<[f32; 3]>>,
-    /// Fitted β-sheet plane normals `(residue_idx, normal)` for
-    /// Cartoon-mode protein entities. Empty otherwise.
-    pub(crate) sheet_plane_normals: Vec<(u32, Vec3)>,
 }
 
 /// Body of a full scene rebuild request, boxed on the enum variant to

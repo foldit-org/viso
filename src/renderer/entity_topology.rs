@@ -24,6 +24,59 @@ use rustc_hash::FxHashMap;
 // EntityTopology
 // ---------------------------------------------------------------------------
 
+/// Per-segment protein backbone atom indices, struct-of-arrays form.
+///
+/// Each inner vec is parallel and residue-stride: index `i` of every
+/// field refers to the same residue. `n`/`ca`/`c`/`o` are
+/// entity-local atom indices that can be resolved against the
+/// entity's `positions` slice via [`ProteinBackboneIndices::resolve`].
+///
+/// Replaces the prior interleaved `[N, CA, C, …]` `Vec<usize>` shape
+/// so the carbonyl-O atom is a first-class member of the backbone
+/// (load-bearing for the sheet peptide-plane normal: PyMOL / Mol* /
+/// ChimeraX / rosetta-interactive all use O directly or indirectly).
+#[derive(Clone, Default)]
+pub(crate) struct ProteinBackboneIndices {
+    pub(crate) n: Vec<usize>,
+    pub(crate) ca: Vec<usize>,
+    pub(crate) c: Vec<usize>,
+    pub(crate) o: Vec<usize>,
+}
+
+impl ProteinBackboneIndices {
+    pub(crate) fn resolve(&self, positions: &[Vec3]) -> ProteinBackboneChain {
+        let resolve = |slot: &[usize]| -> Vec<Vec3> {
+            slot.iter()
+                .filter_map(|&i| positions.get(i).copied())
+                .collect()
+        };
+        ProteinBackboneChain {
+            n: resolve(&self.n),
+            ca: resolve(&self.ca),
+            c: resolve(&self.c),
+            o: resolve(&self.o),
+        }
+    }
+}
+
+/// Resolved positions for one continuous protein backbone segment.
+/// Parallel residue-stride vectors matching [`ProteinBackboneIndices`].
+#[derive(Clone, Default)]
+pub(crate) struct ProteinBackboneChain {
+    pub(crate) n: Vec<Vec3>,
+    pub(crate) ca: Vec<Vec3>,
+    pub(crate) c: Vec<Vec3>,
+    pub(crate) o: Vec<Vec3>,
+}
+
+impl ProteinBackboneChain {
+    /// Number of residues in this segment. All four vecs must have
+    /// the same length under the SoA invariant.
+    pub(crate) fn residue_count(&self) -> usize {
+        self.ca.len()
+    }
+}
+
 /// Self-sufficient render-ready view of a single entity.
 ///
 /// Duplicates the structural metadata the renderer needs (atom elements,
@@ -35,15 +88,15 @@ pub(crate) struct EntityTopology {
     /// pick the right mesh-gen path without looking at the `Assembly`.
     pub(crate) molecule_type: MoleculeType,
 
-    /// Polymer-backbone atom indices, split into continuous chain
-    /// segments. Semantics depend on [`molecule_type`](Self::molecule_type):
-    ///
-    /// - **Protein:** each inner `Vec` is `[N₀, CA₀, C₀, N₁, CA₁, C₁, …]`
-    ///   (stride 3), as consumed by the protein backbone renderer.
-    /// - **Nucleic acid:** each inner `Vec` is `[P₀, P₁, …]` (stride 1), as
-    ///   consumed by the NA renderer.
-    /// - **Other:** empty.
-    pub(crate) backbone_chain_layout: Vec<Vec<usize>>,
+    /// Protein backbone atom indices, one entry per continuous backbone
+    /// segment. Each `ProteinBackboneIndices` is a struct-of-arrays of
+    /// `[N, CA, C, O]` indices (residue-stride; each inner vec parallel
+    /// and equal-length). Empty for non-protein entities.
+    pub(crate) protein_backbone_layout: Vec<ProteinBackboneIndices>,
+
+    /// Nucleic acid P-atom indices, one inner vec per continuous chain
+    /// segment (stride 1: `[P₀, P₁, …]`). Empty for non-NA entities.
+    pub(crate) na_backbone_chain_layout: Vec<Vec<usize>>,
 
     /// Sidechain atom indices and bond topology for ball-and-stick /
     /// sidechain-capsule rendering. Empty for non-protein entities.
@@ -85,20 +138,29 @@ impl EntityTopology {
         matches!(self.molecule_type, MoleculeType::DNA | MoleculeType::RNA)
     }
 
-    /// Reconstruct the backbone chains the protein / NA renderers expect
-    /// by resolving atom indices in
-    /// [`backbone_chain_layout`](Self::backbone_chain_layout) against the
-    /// provided positions slice.
-    ///
-    /// Per [`backbone_chain_layout`](Self::backbone_chain_layout) semantics:
-    /// protein chains come out as interleaved `[N, CA, C, …]` triplets;
-    /// nucleic-acid chains come out as `[P₀, P₁, …]` P-atom sequences.
+    /// Resolve [`protein_backbone_layout`](Self::protein_backbone_layout)
+    /// into per-segment SoA backbone positions. Empty for non-protein
+    /// entities.
     #[must_use]
-    pub(crate) fn backbone_chain_positions(
+    pub(crate) fn protein_backbone_chains(
+        &self,
+        positions: &[Vec3],
+    ) -> Vec<ProteinBackboneChain> {
+        self.protein_backbone_layout
+            .iter()
+            .map(|seg| seg.resolve(positions))
+            .collect()
+    }
+
+    /// Resolve [`na_backbone_chain_layout`](Self::na_backbone_chain_layout)
+    /// into per-chain P-atom positions (stride 1). Empty for non-NA
+    /// entities.
+    #[must_use]
+    pub(crate) fn na_backbone_chain_positions(
         &self,
         positions: &[Vec3],
     ) -> Vec<Vec<Vec3>> {
-        self.backbone_chain_layout
+        self.na_backbone_chain_layout
             .iter()
             .map(|chain| {
                 chain

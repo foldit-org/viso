@@ -414,17 +414,19 @@ impl MeshCache {
         let total_residues: usize = entities
             .iter()
             .map(|e| {
-                e.topology
-                    .backbone_chain_layout
+                let protein = e
+                    .topology
+                    .protein_backbone_layout
                     .iter()
-                    .map(|c| {
-                        if e.topology.is_nucleic_acid() {
-                            c.len()
-                        } else {
-                            c.len() / 3
-                        }
-                    })
-                    .sum::<usize>()
+                    .map(|s| s.ca.len())
+                    .sum::<usize>();
+                let na = e
+                    .topology
+                    .na_backbone_chain_layout
+                    .iter()
+                    .map(Vec::len)
+                    .sum::<usize>();
+                protein + na
             })
             .sum();
         let geometry = geometry.clamped_for_residues(total_residues);

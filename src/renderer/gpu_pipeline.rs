@@ -26,8 +26,9 @@ use crate::renderer::{GeometryPassInput, Renderers};
 
 /// Borrowed scene chain data needed by [`GpuPipeline::upload_prepared`].
 pub(crate) struct SceneChainData<'a> {
-    /// Backbone chains (interpolated or at-rest).
-    pub(crate) backbone_chains: &'a [Vec<Vec3>],
+    /// Protein backbone chains (interpolated or at-rest), SoA form.
+    pub(crate) backbone_chains:
+        &'a [crate::renderer::entity_topology::ProteinBackboneChain],
     /// Nucleic-acid chains.
     pub(crate) na_chains: &'a [Vec<Vec3>],
 }

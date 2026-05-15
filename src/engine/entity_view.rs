@@ -86,7 +86,7 @@ impl RibbonBackbone {
         if !topology.is_protein() {
             return None;
         }
-        let chains = topology.backbone_chain_positions(positions);
+        let chains = topology.protein_backbone_chains(positions);
         if chains.is_empty() {
             return None;
         }
@@ -130,7 +130,7 @@ pub(crate) fn derive_topology(
     let molecule_type = entity.molecule_type();
     match entity {
         MoleculeEntity::Protein(protein) => {
-            let backbone_chain_layout = protein_backbone_chain_layout(protein);
+            let protein_backbone_layout = protein_backbone_indices(protein);
             let sidechain_layout = protein_sidechain_layout(protein);
             let (residue_names, residue_atom_ranges, atom_residue_index) =
                 residue_tables(
@@ -142,7 +142,8 @@ pub(crate) fn derive_topology(
                 );
             EntityTopology {
                 molecule_type,
-                backbone_chain_layout,
+                protein_backbone_layout,
+                na_backbone_chain_layout: Vec::new(),
                 sidechain_layout,
                 ring_topology: Vec::new(),
                 ss_types: ss.to_vec(),
@@ -161,7 +162,8 @@ pub(crate) fn derive_topology(
                 );
             EntityTopology {
                 molecule_type,
-                backbone_chain_layout: na_backbone_chain_layout(na),
+                protein_backbone_layout: Vec::new(),
+                na_backbone_chain_layout: na_backbone_chain_layout(na),
                 sidechain_layout: SidechainLayout::empty(),
                 ring_topology: na_ring_topology(na),
                 ss_types: Vec::new(),
@@ -174,7 +176,8 @@ pub(crate) fn derive_topology(
         }
         MoleculeEntity::SmallMolecule(sm) => EntityTopology {
             molecule_type,
-            backbone_chain_layout: Vec::new(),
+            protein_backbone_layout: Vec::new(),
+            na_backbone_chain_layout: Vec::new(),
             sidechain_layout: SidechainLayout::empty(),
             ring_topology: Vec::new(),
             ss_types: Vec::new(),
@@ -187,7 +190,8 @@ pub(crate) fn derive_topology(
         },
         MoleculeEntity::Bulk(bulk) => EntityTopology {
             molecule_type,
-            backbone_chain_layout: Vec::new(),
+            protein_backbone_layout: Vec::new(),
+            na_backbone_chain_layout: Vec::new(),
             sidechain_layout: SidechainLayout::empty(),
             ring_topology: Vec::new(),
             ss_types: Vec::new(),
@@ -237,22 +241,33 @@ where
     (names, ranges, atom_residue_index)
 }
 
-/// Interleaved `[N, CA, C]` atom indices per continuous backbone segment.
-fn protein_backbone_chain_layout(
+/// Build per-segment SoA backbone-atom indices for a protein entity.
+/// `ProteinEntity::new` enforces canonical atom ordering — N, CA, C, O
+/// as the first four atoms of every kept residue — so each role's
+/// index is a fixed offset from the residue's `atom_range.start`.
+fn protein_backbone_indices(
     protein: &molex::entity::molecule::protein::ProteinEntity,
-) -> Vec<Vec<usize>> {
+) -> Vec<crate::renderer::entity_topology::ProteinBackboneIndices> {
     use molex::entity::molecule::traits::Polymer;
+
+    use crate::renderer::entity_topology::ProteinBackboneIndices;
     let n_segments = protein.segment_count();
     (0..n_segments)
         .map(|seg_idx| {
             let range = protein.segment_range(seg_idx);
-            let mut indices = Vec::with_capacity(range.len() * 3);
+            let len = range.len();
+            let mut indices = ProteinBackboneIndices {
+                n: Vec::with_capacity(len),
+                ca: Vec::with_capacity(len),
+                c: Vec::with_capacity(len),
+                o: Vec::with_capacity(len),
+            };
             for residue in &protein.residues[range] {
-                // ProteinEntity::new enforces canonical order: N, CA, C, O
-                // as the first four atoms of each kept residue.
-                indices.push(residue.atom_range.start);
-                indices.push(residue.atom_range.start + 1);
-                indices.push(residue.atom_range.start + 2);
+                let base = residue.atom_range.start;
+                indices.n.push(base);
+                indices.ca.push(base + 1);
+                indices.c.push(base + 2);
+                indices.o.push(base + 3);
             }
             indices
         })

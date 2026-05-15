@@ -120,7 +120,9 @@ fn generate_non_backbone_bytes(
             entity.drawing_mode,
             entity.per_residue_colors.as_deref(),
         );
-    let na_chains = entity.topology.backbone_chain_positions(&entity.positions);
+    let na_chains = entity
+        .topology
+        .na_backbone_chain_positions(&entity.positions);
     let na_chain_slice: &[Vec<Vec3>] = if entity.topology.is_nucleic_acid() {
         &na_chains
     } else {
@@ -176,19 +178,22 @@ pub(super) fn generate_entity_mesh(
             },
             None,
             None,
-            &[],
             geometry,
             None,
             None,
         )
     } else {
-        let chain_positions =
-            topology.backbone_chain_positions(&entity.positions);
         let is_na = topology.is_nucleic_acid();
-        let protein_chains: &[Vec<Vec3>] =
-            if is_na { &[] } else { &chain_positions };
-        let na_chains: &[Vec<Vec3>] =
-            if is_na { &chain_positions } else { &[] };
+        let protein_chains = if is_na {
+            Vec::new()
+        } else {
+            topology.protein_backbone_chains(&entity.positions)
+        };
+        let na_chains = if is_na {
+            topology.na_backbone_chain_positions(&entity.positions)
+        } else {
+            Vec::new()
+        };
 
         let na_base_colors: Vec<[f32; 3]> =
             if is_na && display.na_color_mode() == NaColorMode::BaseColor {
@@ -210,12 +215,11 @@ pub(super) fn generate_entity_mesh(
 
         BackboneRenderer::generate_mesh_colored(
             &ChainPair {
-                protein: protein_chains,
-                na: na_chains,
+                protein: &protein_chains,
+                na: &na_chains,
             },
             ss_slice,
             entity.per_residue_colors.as_deref(),
-            &entity.sheet_plane_normals,
             geometry,
             None,
             na_colors_ref,
@@ -239,9 +243,9 @@ pub(super) fn generate_entity_mesh(
 
     let residue_count = if topology.is_protein() {
         topology
-            .backbone_chain_layout
+            .protein_backbone_layout
             .iter()
-            .map(|c| (c.len() / 3) as u32)
+            .map(|seg| seg.ca.len() as u32)
             .sum()
     } else {
         0
@@ -323,7 +327,7 @@ pub(super) fn process_animation_frame(
     let (protein_chains, na_chains) = collect_cartoon_chains(input);
 
     let total_residues: usize =
-        protein_chains.iter().map(|c| c.len() / 3).sum::<usize>()
+        protein_chains.iter().map(|c| c.ca.len()).sum::<usize>()
             + na_chains.iter().map(Vec::len).sum::<usize>();
     let safe_geo = input.geometry.clamped_for_residues(total_residues);
 
@@ -334,7 +338,6 @@ pub(super) fn process_animation_frame(
         },
         input.cache.cartoon_ss_types.as_deref(),
         input.cache.cartoon_per_residue_colors.as_deref(),
-        &[],
         &safe_geo,
         input.per_chain_lod,
         input.cache.cartoon_na_base_colors.as_deref(),
@@ -376,8 +379,11 @@ pub(super) fn process_animation_frame(
 /// frame.
 fn collect_cartoon_chains(
     input: &AnimationFrameInput,
-) -> (Vec<Vec<Vec3>>, Vec<Vec<Vec3>>) {
-    let mut protein_chains: Vec<Vec<Vec3>> = Vec::new();
+) -> (
+    Vec<crate::renderer::entity_topology::ProteinBackboneChain>,
+    Vec<Vec<Vec3>>,
+) {
+    let mut protein_chains = Vec::new();
     let mut na_chains: Vec<Vec<Vec3>> = Vec::new();
     for id in &input.cache.entity_order {
         let Some(meta) = input.cache.entity_meta.get(id) else {
@@ -392,11 +398,10 @@ fn collect_cartoon_chains(
         let Some(positions) = input.positions.get(*id) else {
             continue;
         };
-        let chain_positions = topology.backbone_chain_positions(positions);
         if topology.is_nucleic_acid() {
-            na_chains.extend(chain_positions);
+            na_chains.extend(topology.na_backbone_chain_positions(positions));
         } else {
-            protein_chains.extend(chain_positions);
+            protein_chains.extend(topology.protein_backbone_chains(positions));
         }
     }
     (protein_chains, na_chains)

@@ -307,7 +307,7 @@ pub(crate) fn dual_hermite_spline(
 /// Edge residues (first N, last C in each chain) use the raw backbone
 /// positions since they fall outside the spline's control-point range.
 pub(crate) fn project_backbone_atoms(
-    backbone_chains: &[Vec<Vec3>],
+    backbone_chains: &[crate::renderer::entity_topology::ProteinBackboneChain],
 ) -> (Vec<Vec3>, Vec<Vec3>) {
     /// Fraction of CA→CA span where C sits (CA→C / total).
     const C_FRAC: f32 = 0.35;
@@ -318,30 +318,24 @@ pub(crate) fn project_backbone_atoms(
     let mut all_c = Vec::new();
 
     for chain in backbone_chains {
-        let residues: Vec<[Vec3; 3]> = chain
-            .chunks_exact(3)
-            .map(|tri| [tri[0], tri[1], tri[2]])
-            .collect();
-        let n = residues.len();
-        if n == 0 {
+        let n_res = chain.residue_count();
+        if n_res == 0 {
             continue;
         }
 
-        let ca: Vec<Vec3> = residues.iter().map(|r| r[1]).collect();
-
-        for (i, res) in residues.iter().enumerate() {
+        for i in 0..n_res {
             // N position: on the spline at N_FRAC into span (i-1 → i).
-            let n_pos = if i == 0 || ca.len() < 2 {
-                res[0] // raw N for first residue
+            let n_pos = if i == 0 || chain.ca.len() < 2 {
+                chain.n[i] // raw N for first residue
             } else {
-                catmull_rom_eval(&ca, i - 1, N_FRAC).unwrap_or(res[0])
+                catmull_rom_eval(&chain.ca, i - 1, N_FRAC).unwrap_or(chain.n[i])
             };
 
             // C position: on the spline at C_FRAC into span (i → i+1).
-            let c_pos = if i >= n - 1 || ca.len() < 2 {
-                res[2] // raw C for last residue
+            let c_pos = if i >= n_res - 1 || chain.ca.len() < 2 {
+                chain.c[i] // raw C for last residue
             } else {
-                catmull_rom_eval(&ca, i, C_FRAC).unwrap_or(res[2])
+                catmull_rom_eval(&chain.ca, i, C_FRAC).unwrap_or(chain.c[i])
             };
 
             all_n.push(n_pos);
@@ -493,8 +487,18 @@ pub(crate) fn compute_rmf(points: &mut [SplinePoint]) {
     }
 
     let t0 = points[0].tangent;
-    let arbitrary = if t0.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
-    let n0 = t0.cross(arbitrary).normalize();
+    // Seed the chain roll from `points[0].normal` (a chain-geometry
+    // quantity supplied by the caller) projected perpendicular to the
+    // first tangent. Falls back to a world axis only when no usable seed
+    // is given, so the roll is fixed by geometry rather than by which
+    // world octant the chain happens to load in.
+    let seed = points[0].normal - t0 * t0.dot(points[0].normal);
+    let n0 = if seed.length_squared() > 1e-6 {
+        seed.normalize()
+    } else {
+        let arbitrary = if t0.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
+        t0.cross(arbitrary).normalize()
+    };
     let b0 = t0.cross(n0).normalize();
 
     points[0].normal = n0;
@@ -679,6 +683,60 @@ mod tests {
                 "frame {i}: n·b != 0"
             );
             assert!(p.tangent.dot(p.normal).abs() < TOL, "frame {i}: t·n != 0");
+        }
+    }
+
+    #[test]
+    fn rmf_seed_is_rotation_equivariant() {
+        // The RMF chain roll must be fixed by chain geometry, not by a
+        // world axis. Feeding the same control points (and the same
+        // geometry-derived seed normal) in two world orientations must
+        // produce frames that differ only by that rotation.
+        let n = 12;
+        let base_pos: Vec<Vec3> = (0..n)
+            .map(|i| {
+                let t = i as f32 * 0.3;
+                Vec3::new(t.cos() * 5.0, t.sin() * 5.0, t * 2.0)
+            })
+            .collect();
+        let seed = Vec3::new(0.2, 0.9, 0.3).normalize();
+        let r = glam::Quat::from_axis_angle(
+            Vec3::new(1.0, 2.0, 3.0).normalize(),
+            0.7,
+        );
+
+        let build = |xf: &dyn Fn(Vec3) -> Vec3| -> Vec<SplinePoint> {
+            let mut pts: Vec<SplinePoint> = base_pos
+                .iter()
+                .map(|&p| SplinePoint {
+                    pos: xf(p),
+                    tangent: Vec3::ZERO,
+                    normal: Vec3::ZERO,
+                    binormal: Vec3::ZERO,
+                })
+                .collect();
+            for i in 0..n {
+                let prev = if i == 0 { 0 } else { i - 1 };
+                let next = (i + 1).min(n - 1);
+                pts[i].tangent = (pts[next].pos - pts[prev].pos).normalize();
+            }
+            // The seed is a chain-geometry quantity, so it rotates with
+            // the chain.
+            pts[0].normal = xf(seed) - xf(Vec3::ZERO);
+            compute_rmf(&mut pts);
+            pts
+        };
+
+        let id = build(&|p| p);
+        let rot = build(&|p| r * p);
+
+        for i in 0..n {
+            let mapped = r * id[i].normal;
+            assert!(
+                (mapped - rot[i].normal).length() < 1e-3,
+                "frame {i}: R*normal {mapped:?} != rotated normal {:?}",
+                rot[i].normal,
+            );
         }
     }
 

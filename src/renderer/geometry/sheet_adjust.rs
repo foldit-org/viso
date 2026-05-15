@@ -4,9 +4,11 @@ use glam::Vec3;
 
 use crate::renderer::geometry::sidechain::{OwnedSidechainView, SidechainView};
 
-/// Total residue count from backbone chains (3 atoms per residue: N, CA, C).
-pub(crate) fn backbone_residue_count(backbone_chains: &[Vec<Vec3>]) -> usize {
-    backbone_chains.iter().map(|c| c.len() / 3).sum()
+/// Total residue count from SoA protein backbone chains.
+pub(crate) fn backbone_residue_count(
+    backbone_chains: &[crate::renderer::entity_topology::ProteinBackboneChain],
+) -> usize {
+    backbone_chains.iter().map(|c| c.ca.len()).sum()
 }
 
 /// Apply sheet-surface offsets to sidechain positions and backbone-sidechain
