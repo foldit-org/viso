@@ -222,8 +222,8 @@ impl VisoEngine {
     /// Upload or clear an Adobe ASCII `.cube` 3D LUT on the GPU
     /// (`Rgba16Float`).
     ///
-    /// Rendering is unchanged until post-process shaders sample the texture
-    /// (PR3).
+    /// When `Some`, the composite pass binds the volume and applies LUT grading.
+    /// When `None`, grading is disabled.
     ///
     /// # Errors
     ///
