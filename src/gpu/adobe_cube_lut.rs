@@ -1,9 +1,9 @@
-//! GPU [`wgpu`] 3D `Rgba16Float` texture + sampler from a CPU-decoded Adobe
+//! GPU [`wgpu`] 3D `Rgba16Float` texture + view from a CPU-decoded Adobe
 //! `.cube` volume ([`crate::util::lut_adobe_cube::LutRgbCube3d`]).
 //!
 //! - Volume `N×N×N` texels (`N = LUT_3D_SIZE`), RGBA16F with alpha forced to 1.
-//! - Linear filtering and clamp-to-edge on all axes.
-//! - PR2 only uploads and holds the texture; PR3 binds it in post-process WGSL.
+//! - The composite pass binds [`AdobeCubeLutTexture::texture_view`] and samples
+//!   with its own linear clamp sampler when a LUT is loaded.
 //!
 //! ## Upload layout
 //!
@@ -20,19 +20,17 @@ use crate::gpu::RenderContext;
 use crate::util::lut_adobe_cube::LutRgbCube3d;
 
 /// GPU resources for one Adobe `.cube` 3D LUT (`N×N×N` RGBA16F).
-#[allow(dead_code)] // Fields used when post-process binds this LUT (PR3+).
 pub(crate) struct AdobeCubeLutTexture {
-    /// Keep the texture alive; the view references it.
+    /// Retained so the GPU texture is not dropped while `view` remains valid.
+    #[allow(dead_code)]
     texture: wgpu::Texture,
     view: wgpu::TextureView,
-    sampler: wgpu::Sampler,
     /// Grid edge length `N` matching [`LutRgbCube3d::size`].
     size: u32,
 }
 
-#[allow(dead_code)] // Used when post-process samples the LUT (PR3+).
 impl AdobeCubeLutTexture {
-    /// Create the 3D texture, upload texels, build linear/clamp sampler.
+    /// Create the 3D texture and upload texels.
     ///
     /// # Errors
     ///
@@ -76,17 +74,6 @@ impl AdobeCubeLutTexture {
             ..Default::default()
         });
 
-        let sampler = context.device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Adobe cube 3D LUT sampler"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            ..Default::default()
-        });
-
         // Packed RGBA16F bytes; same sample order as the `.cube` file.
         let bytes = lut.rgba16f_bytes_volume_order();
         debug_assert_eq!(
@@ -113,19 +100,13 @@ impl AdobeCubeLutTexture {
         Ok(Self {
             texture,
             view,
-            sampler,
             size: n,
         })
     }
 
-    /// Bind as WGSL `texture_3d<f32>` (stores RGBA16F).
+    /// View for binding as WGSL `texture_3d<f32>` (stored as `Rgba16Float`).
     pub(crate) fn texture_view(&self) -> &wgpu::TextureView {
         &self.view
-    }
-
-    /// Linear + clamp sampler for LUT sampling.
-    pub(crate) fn sampler(&self) -> &wgpu::Sampler {
-        &self.sampler
     }
 
     /// LUT grid size `N` (`LUT_3D_SIZE N`).
