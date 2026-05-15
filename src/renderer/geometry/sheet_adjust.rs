@@ -15,17 +15,27 @@ pub(crate) fn backbone_residue_count(
 /// `offsets` is produced in ascending `residue_idx` order (per-segment,
 /// per-chain, concatenated monotonically in `mesh_concat`), so a binary
 /// search replaces the per-frame `HashMap` rebuild this used to do.
+///
+/// Caller must validate sortedness once via [`debug_assert_offsets_sorted`]
+/// before looping: this is called once per sidechain atom, so the
+/// O(n) sorted-check must not live here (that is O(atoms x offsets) per
+/// camera-drag frame).
 fn lookup_offset(offsets: &[SheetOffset], res_idx: u32) -> Option<Vec3> {
+    offsets
+        .binary_search_by_key(&res_idx, |so| so.residue_idx)
+        .ok()
+        .map(|i| offsets[i].offset)
+}
+
+/// One-time precondition check for [`lookup_offset`]'s binary search.
+/// Call once per `offsets` slice before the per-atom loop, never inside it.
+fn debug_assert_offsets_sorted(offsets: &[SheetOffset]) {
     debug_assert!(
         offsets
             .windows(2)
             .all(|w| w[0].residue_idx <= w[1].residue_idx),
         "sheet offsets must be sorted by residue_idx for binary search"
     );
-    offsets
-        .binary_search_by_key(&res_idx, |so| so.residue_idx)
-        .ok()
-        .map(|i| offsets[i].offset)
 }
 
 /// Apply sheet-surface offsets to sidechain positions and backbone-sidechain
@@ -62,6 +72,7 @@ pub(crate) fn adjust_sidechains_for_sheet(
     if offsets.is_empty() {
         return positions.to_vec();
     }
+    debug_assert_offsets_sorted(offsets);
     // `positions` and `sidechain_residue_indices` are parallel sidechain-
     // atom arrays from the same `SidechainLayout`; zip rather than index
     // so there is no "missing residue index" case to paper over with a
@@ -93,6 +104,7 @@ pub(crate) fn adjust_bonds_for_sheet(
     if offsets.is_empty() {
         return bonds.to_vec();
     }
+    debug_assert_offsets_sorted(offsets);
     bonds
         .iter()
         .map(|(ca_pos, cb_idx)| {
