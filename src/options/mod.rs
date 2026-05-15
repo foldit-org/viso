@@ -166,6 +166,19 @@ shininess = 80.0
     }
 
     #[test]
+    fn post_processing_adobe_lut_path_from_toml() {
+        let toml_str = r#"
+[post_processing]
+adobe_cube_lut_path = "/path/to/look.cube"
+"#;
+        let opts: VisoOptions = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            opts.post_processing.adobe_cube_lut_path.as_deref(),
+            Some("/path/to/look.cube")
+        );
+    }
+
+    #[test]
     fn cofactor_tint_lookup() {
         let colors = ColorOptions::default();
         assert_eq!(colors.cofactor_tint("CLA"), [0.2, 0.7, 0.3]);

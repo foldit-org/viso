@@ -42,6 +42,9 @@ pub struct PostProcessingOptions {
     /// Luminance threshold for bloom extraction.
     #[schemars(title = "Bloom Threshold", range(min = 0.5, max = 2.0), extend("step" = 0.05), extend("x-group" = "Bloom"))]
     pub bloom_threshold: f32,
+    /// Optional path to an Adobe ASCII `.cube` LUT file (native: loaded on apply).
+    #[schemars(title = "Adobe LUT Path", extend("x-group" = "Color LUT"))]
+    pub adobe_cube_lut_path: Option<String>,
 }
 
 impl Default for PostProcessingOptions {
@@ -59,6 +62,7 @@ impl Default for PostProcessingOptions {
             normal_outline_strength: 0.5,
             bloom_intensity: 0.0,
             bloom_threshold: 1.0,
+            adobe_cube_lut_path: None,
         }
     }
 }
