@@ -170,7 +170,7 @@ fn per_chain_gradient(
     }
     let mut colors = Vec::with_capacity(residue_count);
     for chain in backbone_chains {
-        let n_residues = chain.ca.len();
+        let n_residues = chain.ca().len();
         if n_residues == 0 {
             continue;
         }
@@ -200,6 +200,6 @@ fn per_entity_color(
     }
     backbone_chains
         .iter()
-        .flat_map(|chain| std::iter::repeat_n(color, chain.ca.len()))
+        .flat_map(|chain| std::iter::repeat_n(color, chain.ca().len()))
         .collect()
 }

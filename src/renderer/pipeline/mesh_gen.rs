@@ -15,7 +15,7 @@ use crate::options::{
     ColorOptions, DisplayOptions, DrawingMode, GeometryOptions, NaColorMode,
     SidechainColorMode,
 };
-use crate::renderer::entity_topology::EntityTopology;
+use crate::renderer::entity_topology::{EntityTopology, SidechainLayout};
 use crate::renderer::geometry::sheet_adjust::{
     adjust_bonds_for_sheet, adjust_sidechains_for_sheet,
 };
@@ -27,6 +27,42 @@ use crate::renderer::geometry::{
 // ---------------------------------------------------------------------------
 // Sidechain capsule instance helper
 // ---------------------------------------------------------------------------
+
+/// Resolve sidechain atom positions and backbone-bond anchor positions
+/// from a layout against an entity's interpolated `positions` slice.
+///
+/// An out-of-range index means the topology layout and the position
+/// slice have desynced upstream (the same invariant class as
+/// [`ProteinBackboneIndices::resolve`](crate::renderer::entity_topology::ProteinBackboneIndices::resolve)),
+/// not recoverable data — fail loudly rather than substituting an origin
+/// point that would then participate in centroid/offset math as if real.
+#[allow(clippy::panic)]
+fn resolve_sidechain_atoms(
+    layout: &SidechainLayout,
+    positions: &[Vec3],
+) -> (Vec<Vec3>, Vec<(Vec3, u32)>) {
+    let at = |idx: u32, role: &str| -> Vec3 {
+        match positions.get(idx as usize) {
+            Some(&p) => p,
+            None => panic!(
+                "sidechain {role} atom index {idx} out of range for {} \
+                 positions: topology/position desync",
+                positions.len(),
+            ),
+        }
+    };
+    let sidechain_positions = layout
+        .atom_indices
+        .iter()
+        .map(|&idx| at(idx, "atom"))
+        .collect();
+    let backbone_bonds = layout
+        .backbone_bonds
+        .iter()
+        .map(|&(ca_atom_idx, layout_idx)| (at(ca_atom_idx, "CA"), layout_idx))
+        .collect();
+    (sidechain_positions, backbone_bonds)
+}
 
 /// Derive the renderer-facing sidechain view from a topology slice and
 /// interpolated atom positions, then apply sheet-surface adjustment
@@ -44,24 +80,10 @@ fn generate_sidechain_bytes(
     if layout.atom_indices.is_empty() {
         return (Vec::new(), 0);
     }
-    let sidechain_positions: Vec<Vec3> = layout
-        .atom_indices
-        .iter()
-        .map(|&idx| positions.get(idx as usize).copied().unwrap_or(Vec3::ZERO))
-        .collect();
     // Backbone→sidechain bonds use CA position (resolved from positions)
     // + an index into the sidechain layout.
-    let backbone_bonds: Vec<(Vec3, u32)> = layout
-        .backbone_bonds
-        .iter()
-        .map(|&(ca_atom_idx, layout_idx)| {
-            let ca = positions
-                .get(ca_atom_idx as usize)
-                .copied()
-                .unwrap_or(Vec3::ZERO);
-            (ca, layout_idx)
-        })
-        .collect();
+    let (sidechain_positions, backbone_bonds) =
+        resolve_sidechain_atoms(layout, positions);
 
     let offset_map: HashMap<u32, Vec3> =
         sheet_offsets.iter().copied().collect();
@@ -327,7 +349,7 @@ pub(super) fn process_animation_frame(
     let (protein_chains, na_chains) = collect_cartoon_chains(input);
 
     let total_residues: usize =
-        protein_chains.iter().map(|c| c.ca.len()).sum::<usize>()
+        protein_chains.iter().map(|c| c.ca().len()).sum::<usize>()
             + na_chains.iter().map(Vec::len).sum::<usize>();
     let safe_geo = input.geometry.clamped_for_residues(total_residues);
 
@@ -435,24 +457,8 @@ fn generate_animation_sidechains(
             continue;
         };
         let layout = &topology.sidechain_layout;
-        let sidechain_positions: Vec<Vec3> = layout
-            .atom_indices
-            .iter()
-            .map(|&idx| {
-                positions.get(idx as usize).copied().unwrap_or(Vec3::ZERO)
-            })
-            .collect();
-        let backbone_bonds: Vec<(Vec3, u32)> = layout
-            .backbone_bonds
-            .iter()
-            .map(|&(ca_atom_idx, layout_idx)| {
-                let ca = positions
-                    .get(ca_atom_idx as usize)
-                    .copied()
-                    .unwrap_or(Vec3::ZERO);
-                (ca, layout_idx)
-            })
-            .collect();
+        let (sidechain_positions, backbone_bonds) =
+            resolve_sidechain_atoms(layout, positions);
         let adjusted_positions = adjust_sidechains_for_sheet(
             &sidechain_positions,
             &layout.residue_indices,
@@ -485,4 +491,22 @@ fn generate_animation_sidechains(
     }
 
     (Some(combined), total_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A sidechain atom index past the position slice means a
+    /// topology/position desync; resolution must fail loudly rather than
+    /// substitute `Vec3::ZERO`, which would enter centroid math as a real
+    /// origin-point atom.
+    #[test]
+    #[should_panic(expected = "topology/position desync")]
+    fn resolve_sidechain_atoms_panics_on_out_of_range() {
+        let mut layout = SidechainLayout::empty();
+        layout.atom_indices = vec![0, 99];
+        let positions = vec![Vec3::ZERO; 3];
+        let _ = resolve_sidechain_atoms(&layout, &positions);
+    }
 }

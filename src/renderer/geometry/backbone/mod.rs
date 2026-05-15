@@ -449,7 +449,7 @@ fn combined_hash(
     // rebuilds; N/C/O move alongside CA so CA alone is a reliable proxy.
     protein_chains.len().hash(&mut h);
     for chain in protein_chains {
-        hash_vec3_slice_summary(&chain.ca, &mut h);
+        hash_vec3_slice_summary(chain.ca(), &mut h);
     }
     hash_vec3_slices(na_chains).hash(&mut h);
     h.finish()

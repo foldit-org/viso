@@ -44,34 +44,88 @@ pub(crate) struct ProteinBackboneIndices {
 }
 
 impl ProteinBackboneIndices {
+    /// Resolve every backbone atom index against `positions`, all-or-nothing.
+    ///
+    /// An out-of-range index means the topology layout and the position
+    /// slice have desynced (a sync-state bug upstream), not a recoverable
+    /// data condition. Resolving partially — as a `filter_map` would —
+    /// silently shortens one field and breaks the "all four parallel,
+    /// equal length" SoA invariant every downstream consumer relies on,
+    /// with zero signal. So fail loudly with the offending role/index.
+    // Deliberate hard-fail: a desynced layout is unrecoverable corruption,
+    // not data, so a panic with context is the correct boundary behavior.
+    #[allow(clippy::panic)]
     pub(crate) fn resolve(&self, positions: &[Vec3]) -> ProteinBackboneChain {
-        let resolve = |slot: &[usize]| -> Vec<Vec3> {
+        let resolve = |role: &str, slot: &[usize]| -> Vec<Vec3> {
             slot.iter()
-                .filter_map(|&i| positions.get(i).copied())
+                .map(|&i| match positions.get(i) {
+                    Some(&p) => p,
+                    None => panic!(
+                        "protein backbone {role} atom index {i} out of range \
+                         for {} positions ({} backbone residues in this \
+                         segment): topology/position desync",
+                        positions.len(),
+                        slot.len(),
+                    ),
+                })
                 .collect()
         };
-        ProteinBackboneChain {
-            n: resolve(&self.n),
-            ca: resolve(&self.ca),
-            c: resolve(&self.c),
-            o: resolve(&self.o),
-        }
+        let chain = ProteinBackboneChain {
+            n: resolve("N", &self.n),
+            ca: resolve("CA", &self.ca),
+            c: resolve("C", &self.c),
+            o: resolve("O", &self.o),
+        };
+        debug_assert!(
+            chain.n.len() == chain.ca.len()
+                && chain.c.len() == chain.ca.len()
+                && chain.o.len() == chain.ca.len(),
+            "ProteinBackboneChain SoA invariant violated: n={}, ca={}, c={}, \
+             o={} must be equal length",
+            chain.n.len(),
+            chain.ca.len(),
+            chain.c.len(),
+            chain.o.len(),
+        );
+        chain
     }
 }
 
 /// Resolved positions for one continuous protein backbone segment.
-/// Parallel residue-stride vectors matching [`ProteinBackboneIndices`].
+///
+/// Parallel residue-stride vectors matching [`ProteinBackboneIndices`]:
+/// index `i` of [`n`](Self::n), [`ca`](Self::ca), [`c`](Self::c), and
+/// [`o`](Self::o) refer to the same residue, and all four are guaranteed
+/// equal length (enforced in [`ProteinBackboneIndices::resolve`]). Fields
+/// are private so the only construction path is that fallible resolve.
 #[derive(Clone, Default)]
 pub(crate) struct ProteinBackboneChain {
-    pub(crate) n: Vec<Vec3>,
-    pub(crate) ca: Vec<Vec3>,
-    pub(crate) c: Vec<Vec3>,
-    pub(crate) o: Vec<Vec3>,
+    n: Vec<Vec3>,
+    ca: Vec<Vec3>,
+    c: Vec<Vec3>,
+    o: Vec<Vec3>,
 }
 
 impl ProteinBackboneChain {
-    /// Number of residues in this segment. All four vecs must have
-    /// the same length under the SoA invariant.
+    /// Backbone amide-N positions, residue-stride.
+    pub(crate) fn n(&self) -> &[Vec3] {
+        &self.n
+    }
+    /// Backbone alpha-carbon positions, residue-stride.
+    pub(crate) fn ca(&self) -> &[Vec3] {
+        &self.ca
+    }
+    /// Backbone carbonyl-C positions, residue-stride.
+    pub(crate) fn c(&self) -> &[Vec3] {
+        &self.c
+    }
+    /// Backbone carbonyl-O positions, residue-stride.
+    pub(crate) fn o(&self) -> &[Vec3] {
+        &self.o
+    }
+
+    /// Number of residues in this segment. All four vecs have the same
+    /// length under the SoA invariant.
     pub(crate) fn residue_count(&self) -> usize {
         self.ca.len()
     }
@@ -292,5 +346,49 @@ impl NucleotideRingLayout {
             c1_prime,
             color: self.color,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn indices(
+        n: &[usize],
+        ca: &[usize],
+        c: &[usize],
+        o: &[usize],
+    ) -> ProteinBackboneIndices {
+        ProteinBackboneIndices {
+            n: n.to_vec(),
+            ca: ca.to_vec(),
+            c: c.to_vec(),
+            o: o.to_vec(),
+        }
+    }
+
+    #[test]
+    fn resolve_yields_equal_length_parallel_vecs() {
+        let positions: Vec<Vec3> =
+            (0..8).map(|i| Vec3::splat(i as f32)).collect();
+        let layout = indices(&[0, 4], &[1, 5], &[2, 6], &[3, 7]);
+        let chain = layout.resolve(&positions);
+        assert_eq!(chain.residue_count(), 2);
+        assert_eq!(chain.n().len(), 2);
+        assert_eq!(chain.ca().len(), 2);
+        assert_eq!(chain.c().len(), 2);
+        assert_eq!(chain.o().len(), 2);
+    }
+
+    /// An out-of-range index must abort resolve loudly, not silently
+    /// produce a short vec that desyncs the SoA invariant.
+    #[test]
+    #[should_panic(expected = "topology/position desync")]
+    fn resolve_panics_on_out_of_range_index() {
+        let positions: Vec<Vec3> =
+            (0..4).map(|i| Vec3::splat(i as f32)).collect();
+        // `o` references atom index 99, far past the 4 positions.
+        let layout = indices(&[0], &[1], &[2], &[99]);
+        let _ = layout.resolve(&positions);
     }
 }

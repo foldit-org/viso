@@ -148,7 +148,7 @@ impl PickingSystem {
 
         let mut global_start = 0usize;
         let chain_range = backbone_chains.iter().find_map(|chain| {
-            let chain_residues = chain.ca.len();
+            let chain_residues = chain.ca().len();
             let global_end = global_start + chain_residues;
             let result = (target >= global_start && target < global_end)
                 .then_some(global_start..global_end);

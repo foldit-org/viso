@@ -14,6 +14,18 @@ pub(crate) struct SplinePoint {
     pub(crate) binormal: Vec3,
 }
 
+/// Position + tangent only — the pre-frame intermediate along a spline.
+///
+/// A completed [`SplinePoint`] (with orthonormal normal/binormal) is
+/// produced from a slice of these by [`rmf_frames`] / [`frenet_frames`].
+/// Carrying this distinct type keeps the invalid "frame with zeroed
+/// normal/binormal" state out of the mesh path entirely.
+#[derive(Clone, Copy)]
+pub(crate) struct SplineTrace {
+    pub(crate) pos: Vec3,
+    pub(crate) tangent: Vec3,
+}
+
 /// Catmull-Rom spline interpolation (passes through all control points).
 pub(crate) fn catmull_rom(
     points: &[Vec3],
@@ -325,17 +337,19 @@ pub(crate) fn project_backbone_atoms(
 
         for i in 0..n_res {
             // N position: on the spline at N_FRAC into span (i-1 → i).
-            let n_pos = if i == 0 || chain.ca.len() < 2 {
-                chain.n[i] // raw N for first residue
+            let n_pos = if i == 0 || chain.ca().len() < 2 {
+                chain.n()[i] // raw N for first residue
             } else {
-                catmull_rom_eval(&chain.ca, i - 1, N_FRAC).unwrap_or(chain.n[i])
+                catmull_rom_eval(chain.ca(), i - 1, N_FRAC)
+                    .unwrap_or_else(|| chain.n()[i])
             };
 
             // C position: on the spline at C_FRAC into span (i → i+1).
-            let c_pos = if i >= n_res - 1 || chain.ca.len() < 2 {
-                chain.c[i] // raw C for last residue
+            let c_pos = if i >= n_res - 1 || chain.ca().len() < 2 {
+                chain.c()[i] // raw C for last residue
             } else {
-                catmull_rom_eval(&chain.ca, i, C_FRAC).unwrap_or(chain.c[i])
+                catmull_rom_eval(chain.ca(), i, C_FRAC)
+                    .unwrap_or_else(|| chain.c()[i])
             };
 
             all_n.push(n_pos);
@@ -477,6 +491,48 @@ pub(crate) fn compute_frenet_frames(points: &mut [SplinePoint]) {
             points[i].binormal = binormal;
         }
     }
+}
+
+/// The single construction site of the position-only `SplinePoint`
+/// shell. Every normal/binormal is filled by the frame solver
+/// ([`compute_rmf`] / [`compute_frenet_frames`]) before any consumer
+/// sees the result, so a half-built frame never escapes this module.
+fn shells_from_traces(traces: &[SplineTrace]) -> Vec<SplinePoint> {
+    traces
+        .iter()
+        .map(|t| SplinePoint {
+            pos: t.pos,
+            tangent: t.tangent,
+            normal: Vec3::ZERO,
+            binormal: Vec3::ZERO,
+        })
+        .collect()
+}
+
+/// Build rotation-minimizing frames from position+tangent traces.
+///
+/// `seed` is the chain-roll seed — the first residue's peptide-plane
+/// normal. When `Some`, it feeds [`compute_rmf`]'s frame-0 projection so
+/// the whole chain's roll is fixed by backbone geometry rather than a
+/// world axis; `None` lets `compute_rmf` fall back to a world axis. This
+/// is the typed replacement for mutating a zeroed `frames[0].normal`.
+pub(crate) fn rmf_frames(
+    traces: &[SplineTrace],
+    seed: Option<Vec3>,
+) -> Vec<SplinePoint> {
+    let mut frames = shells_from_traces(traces);
+    if let (Some(seed), Some(first)) = (seed, frames.first_mut()) {
+        first.normal = seed;
+    }
+    compute_rmf(&mut frames);
+    frames
+}
+
+/// Build Frenet frames from position+tangent traces (nucleic-acid path).
+pub(crate) fn frenet_frames(traces: &[SplineTrace]) -> Vec<SplinePoint> {
+    let mut frames = shells_from_traces(traces);
+    compute_frenet_frames(&mut frames);
+    frames
 }
 
 /// Compute Rotation Minimizing Frames using the double reflection method
@@ -683,6 +739,75 @@ mod tests {
                 "frame {i}: n·b != 0"
             );
             assert!(p.tangent.dot(p.normal).abs() < TOL, "frame {i}: t·n != 0");
+        }
+    }
+
+    /// The typed `rmf_frames(&[SplineTrace], seed)` entry point must
+    /// produce frames byte-identical to the pre-refactor path of
+    /// "zeroed `SplinePoint` shells, `frames[0].normal = seed`,
+    /// `compute_rmf`". This pins the `SplineTrace` introduction as
+    /// behavior-preserving.
+    #[test]
+    fn rmf_frames_matches_legacy_shell_path() {
+        let n = 16;
+        let pos: Vec<Vec3> = (0..n)
+            .map(|i| {
+                let t = i as f32 * 0.27;
+                Vec3::new(t.cos() * 4.0, t.sin() * 3.0, t * 1.7)
+            })
+            .collect();
+        let mut tangents = vec![Vec3::ZERO; n];
+        for (i, t) in tangents.iter_mut().enumerate() {
+            let prev = if i == 0 { 0 } else { i - 1 };
+            let next = (i + 1).min(n - 1);
+            *t = (pos[next] - pos[prev]).normalize();
+        }
+        let seed = Vec3::new(0.3, 0.8, -0.5).normalize();
+
+        // Legacy path: zeroed shells, seed mutated into frame 0.
+        let mut legacy: Vec<SplinePoint> = pos
+            .iter()
+            .zip(tangents.iter())
+            .map(|(&p, &t)| SplinePoint {
+                pos: p,
+                tangent: t,
+                normal: Vec3::ZERO,
+                binormal: Vec3::ZERO,
+            })
+            .collect();
+        legacy[0].normal = seed;
+        compute_rmf(&mut legacy);
+
+        // Typed path through the new intermediate.
+        let traces: Vec<SplineTrace> = pos
+            .iter()
+            .zip(tangents.iter())
+            .map(|(&p, &t)| SplineTrace { pos: p, tangent: t })
+            .collect();
+        let typed = rmf_frames(&traces, Some(seed));
+
+        assert_eq!(typed.len(), legacy.len());
+        for (i, (a, b)) in typed.iter().zip(legacy.iter()).enumerate() {
+            assert!(approx_eq(a.pos, b.pos), "frame {i}: pos differs");
+            assert!(
+                approx_eq(a.tangent, b.tangent),
+                "frame {i}: tangent differs"
+            );
+            assert!(
+                approx_eq(a.normal, b.normal),
+                "frame {i}: normal differs ({:?} vs {:?})",
+                a.normal,
+                b.normal,
+            );
+            assert!(
+                approx_eq(a.binormal, b.binormal),
+                "frame {i}: binormal differs"
+            );
+            assert!(
+                (a.normal.length() - 1.0).abs() < TOL
+                    && a.normal.dot(a.tangent).abs() < TOL,
+                "frame {i}: not orthonormal"
+            );
         }
     }
 

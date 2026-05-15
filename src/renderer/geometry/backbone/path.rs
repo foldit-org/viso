@@ -1,17 +1,31 @@
 //! Sheet-specific backbone geometry: peptide-plane normals, iterative
 //! flattening (PyMOL-style), and sidechain offset computation.
 
+use std::ops::Range;
+
 use glam::Vec3;
 use molex::SSType;
 
 use crate::renderer::entity_topology::ProteinBackboneChain;
 
-/// Segment a residue SS-type array into contiguous runs.
+/// Minimum squared length of the peptide-plane cross product `(CA−N)×(O−N)`
+/// for it to be treated as a usable normal. Below this the three atoms are
+/// effectively collinear.
+const DEGENERATE_NORMAL_LENGTH_SQ: f32 = 1e-6;
+
+/// Substitute normal used only when the peptide-plane cross product is
+/// degenerate (collinear N/CA/O — pathological backbone geometry).
+const DEGENERATE_NORMAL: Vec3 = Vec3::Y;
+
+/// One contiguous run of a single secondary-structure type.
+///
+/// `residues` is the half-open residue range `[start, end)`; carrying a
+/// `Range` rather than two bare `usize`s makes `start ≤ end` structural
+/// and removes the swap-bait of separate start/end fields.
 #[derive(Debug)]
 pub(crate) struct SSSegment {
     pub(crate) ss_type: SSType,
-    pub(crate) start_residue: usize,
-    pub(crate) end_residue: usize,
+    pub(crate) residues: Range<usize>,
 }
 
 pub(crate) fn segment_by_ss(ss_types: &[SSType]) -> Vec<SSSegment> {
@@ -27,8 +41,7 @@ pub(crate) fn segment_by_ss(ss_types: &[SSType]) -> Vec<SSSegment> {
         if ss != current {
             segments.push(SSSegment {
                 ss_type: current,
-                start_residue: start,
-                end_residue: i,
+                residues: start..i,
             });
             current = ss;
             start = i;
@@ -36,24 +49,32 @@ pub(crate) fn segment_by_ss(ss_types: &[SSType]) -> Vec<SSSegment> {
     }
     segments.push(SSSegment {
         ss_type: current,
-        start_residue: start,
-        end_residue: ss_types.len(),
+        residues: start..ss_types.len(),
     });
 
     segments
 }
 
+/// Sheet-specific backbone geometry produced by [`compute_sheet_geometry`].
+///
+/// `flat_ca` and `normals` are residue-stride and equal length; `offsets`
+/// holds only the residues that were flattened, as
+/// `(global_residue_idx, position_delta)`.
+pub(crate) struct SheetGeometry {
+    pub(crate) flat_ca: Vec<Vec3>,
+    pub(crate) normals: Vec<Vec3>,
+    pub(crate) offsets: Vec<(u32, Vec3)>,
+}
+
 /// Compute sheet-specific geometry: flattened CA positions, peptide-plane
 /// normals, and position offsets for sidechain adjustment.
-///
-/// Returns `(flat_ca, normals, sheet_offsets)`.
 pub(crate) fn compute_sheet_geometry(
     atoms: &ProteinBackboneChain,
     ss_types: &[SSType],
     global_residue_base: u32,
-) -> (Vec<Vec3>, Vec<Vec3>, Vec<(u32, Vec3)>) {
-    let n = atoms.ca.len();
-    let mut flat_ca = atoms.ca.clone();
+) -> SheetGeometry {
+    let n = atoms.ca().len();
+    let mut flat_ca = atoms.ca().to_vec();
     let mut normals = vec![Vec3::ZERO; n];
     let mut offsets = Vec::new();
 
@@ -63,17 +84,30 @@ pub(crate) fn compute_sheet_geometry(
     // with the carbonyl direction (the broad ribbon face axis,
     // up to global sign which `propagate_segment_signs` resolves).
     // Matches `RepCartoon.c:2040-2058` in pymol-open-source.
+    // `atoms` resolves all-or-nothing with n/ca/o equal length
+    // (`ProteinBackboneIndices::resolve`), so `i` is always in range for
+    // every backbone array here — no index guard is needed, and a guard
+    // would silently emit `Vec3::Y` for a real residue if it ever failed.
+    debug_assert!(
+        atoms.n().len() == n && atoms.o().len() == n,
+        "backbone n/ca/o desynced: n={}, ca={}, o={}",
+        atoms.n().len(),
+        n,
+        atoms.o().len(),
+    );
     for (i, slot) in normals.iter_mut().enumerate() {
-        if i < atoms.n.len() && i < atoms.o.len() {
-            let n_ca = (atoms.ca[i] - atoms.n[i]).normalize_or_zero();
-            let n_o = (atoms.o[i] - atoms.n[i]).normalize_or_zero();
-            let normal = n_ca.cross(n_o);
-            *slot = if normal.length_squared() > 1e-6 {
-                normal.normalize()
-            } else {
-                Vec3::Y
-            };
-        }
+        let n_ca = (atoms.ca()[i] - atoms.n()[i]).normalize_or_zero();
+        let n_o = (atoms.o()[i] - atoms.n()[i]).normalize_or_zero();
+        let normal = n_ca.cross(n_o);
+        // `DEGENERATE_NORMAL` only fires when N, CA and the carbonyl O of
+        // this residue are collinear (a pathological/incomplete backbone),
+        // making the peptide-plane cross product near-zero. For real
+        // protein geometry the three atoms are never collinear.
+        *slot = if normal.length_squared() > DEGENERATE_NORMAL_LENGTH_SQ {
+            normal.normalize()
+        } else {
+            DEGENERATE_NORMAL
+        };
     }
 
     let trace = super::sheet_trace::enabled();
@@ -92,8 +126,8 @@ pub(crate) fn compute_sheet_geometry(
         if seg.ss_type != SSType::Sheet {
             continue;
         }
-        let start = seg.start_residue;
-        let end = seg.end_residue.min(n);
+        let start = seg.residues.start;
+        let end = seg.residues.end.min(n);
         if end <= start + 1 {
             continue;
         }
@@ -122,14 +156,18 @@ pub(crate) fn compute_sheet_geometry(
         }
 
         for (j, i) in (start..end).enumerate() {
-            let offset = seg_pos[j] - atoms.ca[i];
+            let offset = seg_pos[j] - atoms.ca()[i];
             flat_ca[i] = seg_pos[j];
             normals[i] = seg_normals[j];
             offsets.push((global_residue_base + i as u32, offset));
         }
     }
 
-    (flat_ca, normals, offsets)
+    SheetGeometry {
+        flat_ca,
+        normals,
+        offsets,
+    }
 }
 
 /// Local strand tangent at `i` (forward difference at the first point,

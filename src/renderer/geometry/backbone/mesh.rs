@@ -4,14 +4,16 @@
 use glam::Vec3;
 use molex::SSType;
 
-use super::path::{compute_sheet_geometry, interpolate_per_residue_normals};
+use super::path::{
+    compute_sheet_geometry, interpolate_per_residue_normals, SheetGeometry,
+};
 use super::profile::{
     cap_offset, extrude_cross_section, interpolate_profiles,
     resolve_na_profile, resolve_profile, CrossSectionProfile,
 };
 use super::spline::{
-    compute_frenet_frames, compute_helix_axis_points, compute_rmf,
-    cubic_bspline, dual_hermite_spline, helix_aware_spline, SplinePoint,
+    compute_helix_axis_points, cubic_bspline, dual_hermite_spline,
+    frenet_frames, helix_aware_spline, rmf_frames, SplinePoint, SplineTrace,
 };
 use super::{BackboneMeshOutput, BackboneVertex};
 use crate::options::GeometryOptions;
@@ -87,12 +89,12 @@ fn process_protein_chains(
     let csv = geo.cross_section_verts;
 
     for (chain_idx, atoms) in chains.iter().enumerate() {
-        if atoms.ca.len() < 2 {
-            global_residue_idx += atoms.ca.len() as u32;
+        if atoms.ca().len() < 2 {
+            global_residue_idx += atoms.ca().len() as u32;
             continue;
         }
 
-        let n_residues = atoms.ca.len();
+        let n_residues = atoms.ca().len();
         let chain_slice = ss_override.and_then(|o| {
             let start = global_residue_idx as usize;
             let end = (start + n_residues).min(o.len());
@@ -136,7 +138,7 @@ fn process_protein_chains(
             cross_section_verts: chain_csv,
             segments_per_residue: chain_spr,
         };
-        let (center, radius) = bounding_sphere(&atoms.ca);
+        let (center, radius) = bounding_sphere(atoms.ca());
 
         let chain_mesh = generate_protein_chain_mesh(
             atoms,
@@ -298,13 +300,16 @@ fn generate_protein_chain_mesh(
     global_residue_base: u32,
     params: &MeshParams,
 ) -> BackboneMeshOutput {
-    let n = atoms.ca.len();
+    let n = atoms.ca().len();
     if n < 2 {
         return BackboneMeshOutput::default();
     }
 
-    let (flat_ca, sheet_normals, sheet_offsets) =
-        compute_sheet_geometry(atoms, ss_types, global_residue_base);
+    let SheetGeometry {
+        flat_ca,
+        normals: sheet_normals,
+        offsets: sheet_offsets,
+    } = compute_sheet_geometry(atoms, ss_types, global_residue_base);
 
     let spr = params.segments_per_residue;
     let spline_points = helix_aware_spline(&flat_ca, ss_types, spr);
@@ -315,18 +320,15 @@ fn generate_protein_chain_mesh(
 
     let tangents = compute_tangents(&spline_points);
 
-    let helix_centers = compute_helix_axis_points(&atoms.ca);
+    let helix_centers = compute_helix_axis_points(atoms.ca());
     let spline_helix_centers = cubic_bspline(&helix_centers, spr);
 
-    let mut frames = build_frames(&spline_points, &tangents);
+    let traces = build_traces(&spline_points, &tangents);
     // Seed the RMF roll from the first residue's peptide-plane normal so
     // the whole chain's roll is fixed by backbone geometry rather than a
     // world axis. `compute_rmf` projects this perpendicular to the first
-    // tangent and falls back to an axis only if it is zero.
-    if let Some(&seed) = sheet_normals.first() {
-        frames[0].normal = seed;
-    }
-    compute_rmf(&mut frames);
+    // tangent and falls back to an axis only if it is zero/absent.
+    let frames = rmf_frames(&traces, sheet_normals.first().copied());
 
     let spline_sheet_normals =
         interpolate_per_residue_normals(&sheet_normals, total, n);
@@ -386,8 +388,8 @@ fn generate_na_chain_mesh(
 
     let tangents = compute_tangents(&spline_points);
 
-    let mut frames = build_frames(&spline_points, &tangents);
-    compute_frenet_frames(&mut frames);
+    let traces = build_traces(&spline_points, &tangents);
+    let frames = frenet_frames(&traces);
 
     let spline_profiles = interpolate_profiles(profiles, total, n);
     let (verts, tube_inds, ribbon_inds) =
@@ -419,17 +421,12 @@ fn compute_tangents(spline: &[Vec3]) -> Vec<Vec3> {
         .collect()
 }
 
-/// Build SplinePoint shells (position + tangent, normals zeroed).
-fn build_frames(spline: &[Vec3], tangents: &[Vec3]) -> Vec<SplinePoint> {
+/// Build position+tangent traces from spline positions and tangents.
+fn build_traces(spline: &[Vec3], tangents: &[Vec3]) -> Vec<SplineTrace> {
     spline
         .iter()
         .zip(tangents.iter())
-        .map(|(&pos, &tangent)| SplinePoint {
-            pos,
-            tangent,
-            normal: Vec3::ZERO,
-            binormal: Vec3::ZERO,
-        })
+        .map(|(&pos, &tangent)| SplineTrace { pos, tangent })
         .collect()
 }
 
