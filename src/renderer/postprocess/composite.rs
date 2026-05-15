@@ -9,6 +9,7 @@ use wgpu::util::DeviceExt;
 
 use super::screen_pass::{run_screen_pass, ScreenPass, ScreenPassDesc};
 use crate::error::VisoError;
+use crate::gpu::adobe_cube_lut::AdobeCubeLutTexture;
 use crate::gpu::pipeline_helpers::{
     create_render_texture, create_screen_space_pipeline, depth_texture_2d,
     filtering_sampler, linear_sampler, non_filtering_sampler, texture_2d,
@@ -125,8 +126,10 @@ pub(crate) struct CompositePass {
     #[allow(dead_code)]
     adobe_lut_dummy_texture: wgpu::Texture,
     adobe_lut_dummy_view: wgpu::TextureView,
-    /// Linear + clamp sampler for [`Self::adobe_lut_dummy_view`] (and future LUT).
+    /// Linear + clamp sampler for binding 9 (shared by dummy and real LUT).
     adobe_lut_sampler: wgpu::Sampler,
+    /// Dummy view or cloned view from [`AdobeCubeLutTexture`].
+    lut_bind_view: wgpu::TextureView,
 
     /// Composite effect parameters (outline, AO, fog, tone-mapping).
     pub(crate) params: CompositeParams,
@@ -167,6 +170,7 @@ impl CompositePass {
         let (adobe_lut_dummy_texture, adobe_lut_dummy_view) =
             Self::create_adobe_lut_dummy_3d(context);
         let adobe_lut_sampler = Self::create_adobe_lut_sampler(context);
+        let lut_bind_view = adobe_lut_dummy_view.clone();
 
         let bind_group_layout = Self::create_bind_group_layout(context);
 
@@ -182,7 +186,7 @@ impl CompositePass {
                 sampler: &sampler,
                 depth_sampler: &depth_sampler,
                 params_buffer: &params_buffer,
-                adobe_lut_tex: &adobe_lut_dummy_view,
+                adobe_lut_tex: &lut_bind_view,
                 adobe_lut_sampler: &adobe_lut_sampler,
             },
         );
@@ -209,6 +213,7 @@ impl CompositePass {
             adobe_lut_dummy_texture,
             adobe_lut_dummy_view,
             adobe_lut_sampler,
+            lut_bind_view,
             params,
             params_buffer,
             width,
@@ -420,6 +425,43 @@ impl CompositePass {
             })
     }
 
+    /// Point composite binding 8 at `lut` (or dummy) and set
+    /// [`CompositeParams::adobe_lut_grid_size`], then rebuild the bind group.
+    pub(crate) fn sync_adobe_cube_lut(
+        &mut self,
+        context: &RenderContext,
+        lut: Option<&AdobeCubeLutTexture>,
+    ) {
+        if let Some(l) = lut {
+            self.params.adobe_lut_grid_size = l.grid_size();
+            self.lut_bind_view = l.texture_view().clone();
+        } else {
+            self.params.adobe_lut_grid_size = 0;
+            self.lut_bind_view = self.adobe_lut_dummy_view.clone();
+        }
+        context.queue.write_buffer(
+            &self.params_buffer,
+            0,
+            bytemuck::cast_slice(&[self.params]),
+        );
+        self.bind_group = Self::create_bind_group(
+            context,
+            &self.bind_group_layout,
+            &CompositeViews {
+                color: &self.color_view,
+                ssao: &self.ssao_view,
+                depth: &self.depth_view,
+                normal: &self.normal_view,
+                bloom: &self.bloom_view,
+                sampler: &self.sampler,
+                depth_sampler: &self.depth_sampler,
+                params_buffer: &self.params_buffer,
+                adobe_lut_tex: &self.lut_bind_view,
+                adobe_lut_sampler: &self.adobe_lut_sampler,
+            },
+        );
+    }
+
     /// Set the output view (FXAA input texture) for this frame.
     pub(crate) fn set_output_view(&mut self, view: wgpu::TextureView) {
         self.output_view = Some(view);
@@ -524,7 +566,7 @@ impl ScreenPass for CompositePass {
                 sampler: &self.sampler,
                 depth_sampler: &self.depth_sampler,
                 params_buffer: &self.params_buffer,
-                adobe_lut_tex: &self.adobe_lut_dummy_view,
+                adobe_lut_tex: &self.lut_bind_view,
                 adobe_lut_sampler: &self.adobe_lut_sampler,
             },
         );
