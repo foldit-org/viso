@@ -10,8 +10,8 @@
 //! - [`VisoOptions`](options::VisoOptions) — runtime configuration (display,
 //!   lighting, camera, colors)
 //! - [`VisoError`] — error type
-//! - [`LutRgbCube3d`] — decoded Adobe `.cube` LUT (see
-//!   [`parse_adobe_cube_str`])
+//! - [`LutRgbCube3d`] — decoded Adobe `.cube` LUT (see [`parse_adobe_cube_str`],
+//!   [`VisoEngine::set_adobe_cube_lut_from_str`])
 //! - [`InputProcessor`] — optional convenience for translating raw input events
 //!   into [`VisoCommand`]s
 //!
