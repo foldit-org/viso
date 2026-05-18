@@ -9,6 +9,9 @@ use crate::gpu::render_context::RenderContextError;
 pub enum VisoError {
     /// GPU context initialization failure.
     Gpu(RenderContextError),
+    /// Allocation or device-limit failure building a GPU resource (e.g. 3D
+    /// LUT).
+    GpuResource(String),
     /// Failed to load a molecular structure file.
     StructureLoad(String),
     /// Generic I/O failure.
@@ -27,6 +30,7 @@ impl fmt::Display for VisoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Gpu(e) => write!(f, "GPU error: {e}"),
+            Self::GpuResource(msg) => write!(f, "GPU resource error: {msg}"),
             Self::StructureLoad(msg) => {
                 write!(f, "structure load error: {msg}")
             }

@@ -181,6 +181,7 @@ impl VisoEngine {
                 last_cull_camera_eye: Vec3::ZERO,
                 shader_composer: bootstrap.shader_composer,
                 density_rx,
+                adobe_cube_lut: None,
             },
             camera_controller: bootstrap.camera_controller,
             constraints: ConstraintSpecs {

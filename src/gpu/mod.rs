@@ -3,6 +3,8 @@
 //! Provides wgpu device/surface initialization, dynamic buffer management,
 //! lighting, per-residue color storage, and shader composition.
 
+/// 3D `Rgba16Float` LUT texture + sampler from a decoded Adobe `.cube` volume.
+pub(crate) mod adobe_cube_lut;
 /// Growable GPU buffers with automatic reallocation.
 pub(crate) mod dynamic_buffer;
 /// GPU lighting uniform, IBL cubemaps, and bind group management.

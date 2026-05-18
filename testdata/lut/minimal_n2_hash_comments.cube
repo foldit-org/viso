@@ -1,0 +1,13 @@
+# prelude
+LUT_3D_SIZE 2  # grid
+# before samples
+0 0 0 # black
+1 0 0
+0 1 0 # mid
+1 1 0
+#
+0 0 1
+1 0 1 # etc
+0 1 1
+1 1 1
+# tail
