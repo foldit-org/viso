@@ -388,8 +388,7 @@ impl MeshCache {
                 {
                     continue;
                 }
-                na_colors
-                    .extend_from_slice(&e.topology.na_residue_base_colors);
+                na_colors.extend_from_slice(&e.topology.na_residue_base_colors);
             }
         }
         self.anim_cache.cartoon_na_base_colors = if na_colors.is_empty() {

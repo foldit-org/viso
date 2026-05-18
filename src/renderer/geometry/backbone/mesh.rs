@@ -89,79 +89,180 @@ pub(crate) fn generate_mesh_colored(
     na_seeds: Option<&[Option<Vec3>]>,
     na_guide_dirs: Option<&[Vec3]>,
 ) -> BackboneMeshOutput {
-    let (mut out, global_residue_idx) = process_protein_chains(
+    let mut out = BackboneMeshOutput::default();
+
+    // Protein block. The color slice is whole-assembly-indexed, so it
+    // keys off `global_residue_idx`; `residue_offset` is unused here.
+    let global_residue_idx = process_chains(
         protein,
-        ss_override,
-        per_residue_colors,
         geo,
         per_chain_lod,
+        &mut out,
+        0,
+        |atoms| atoms.ca().len(),
+        |atoms, _chain_idx, global_residue_idx, _residue_offset, params| {
+            let n_residues = atoms.ca().len();
+            let chain_slice = ss_override.and_then(|o| {
+                let start = global_residue_idx as usize;
+                let end = (start + n_residues).min(o.len());
+                (end.saturating_sub(start) == n_residues)
+                    .then(|| &o[start..end])
+            });
+            // Engine sync always installs per-entity SS via
+            // `Assembly::ss_types`, so every protein chain with >= 2 CA
+            // atoms has a matching slice. If that invariant is ever
+            // violated the chain renders as coil -- no DSSP recompute.
+            let ss_types = chain_slice.map_or_else(
+                || vec![SSType::Coil; n_residues],
+                molex::analysis::merge_short_segments,
+            );
+
+            let mut profiles: Vec<CrossSectionProfile> = (0..n_residues)
+                .map(|i| {
+                    let color = per_residue_colors
+                        .and_then(|c| {
+                            c.get(global_residue_idx as usize + i).copied()
+                        })
+                        .unwrap_or_else(|| ss_types[i].color());
+                    resolve_profile(
+                        ss_types[i],
+                        global_residue_idx + i as u32,
+                        color,
+                        geo,
+                    )
+                })
+                .collect();
+
+            if geo.sheet_arrows {
+                apply_sheet_arrows(&ss_types, &mut profiles, geo);
+            }
+
+            // Widest the extruded ribbon/tube can sit off the CA spline:
+            // the largest configured half-width/thickness, scaled by the
+            // x1.5 sheet-arrow shoulder, plus Catmull-Rom overshoot.
+            let max_extent = geo
+                .sheet_width
+                .max(geo.helix_width)
+                .max(geo.coil_width)
+                .max(geo.sheet_thickness)
+                .max(geo.helix_thickness)
+                .max(geo.coil_thickness)
+                * 1.5;
+            let (center, radius) = bounding_sphere(
+                atoms.ca(),
+                max_extent + SPLINE_OVERSHOOT_SLACK,
+            );
+
+            let chain_mesh = generate_protein_chain_mesh(
+                atoms,
+                &ss_types,
+                &profiles,
+                global_residue_idx,
+                params,
+            );
+            (chain_mesh, center, radius)
+        },
     );
+
+    // Nucleic-acid block, continuing the threaded `global_residue_idx`.
+    // Its color/seed/guide slices are NA-entity-local (0-based), so they
+    // key off the call-local `residue_offset`, not `global_residue_idx`.
     let na_lod = per_chain_lod.and_then(|l| l.get(protein.len()..));
-    process_na_chains(
+    // NA is the last block; the threaded counter past it has no consumer.
+    let _final_residue_idx = process_chains(
         na,
         geo,
         na_lod,
         &mut out,
         global_residue_idx,
-        na_residue_colors,
-        na_seeds,
-        na_guide_dirs,
+        |chain| chain.p().len(),
+        |chain, chain_idx, global_residue_idx, residue_offset, params| {
+            let points = chain.p();
+            let n_residues = points.len();
+            let profiles: Vec<CrossSectionProfile> = (0..n_residues)
+                .map(|i| {
+                    let color = na_residue_colors
+                        .and_then(|c| c.get(residue_offset + i).copied())
+                        .unwrap_or(NA_DEFAULT_COLOR);
+                    resolve_na_profile(
+                        global_residue_idx + i as u32,
+                        color,
+                        geo,
+                    )
+                })
+                .collect();
+
+            // The drawn NA geometry is not just the thin ribbon: base
+            // paddles + stems extend well off the P backbone (rendered
+            // by the separate NA renderer with no per-chain cull). Pad
+            // the sphere by that reach so an edge-on duplex doesn't
+            // frustum-cull its paddles while the backbone stays visible.
+            let na_extent =
+                geo.na_width.max(geo.na_thickness) + NA_PADDLE_REACH_SLACK;
+            let (center, radius) =
+                bounding_sphere(points, na_extent + SPLINE_OVERSHOOT_SLACK);
+            let seed =
+                na_seeds.and_then(|s| s.get(chain_idx).copied()).flatten();
+            // Residue-parallel slice of the entity-wide C1'-P guide field.
+            let chain_guides: &[Vec3] = na_guide_dirs
+                .and_then(|g| {
+                    g.get(residue_offset..residue_offset + n_residues)
+                })
+                .unwrap_or(&[]);
+            let chain_mesh = generate_na_chain_mesh(
+                points,
+                &profiles,
+                params,
+                seed,
+                chain_guides,
+            );
+            (chain_mesh, center, radius)
+        },
     );
 
     out
 }
 
-fn process_protein_chains(
-    chains: &[crate::renderer::entity_topology::ProteinBackboneChain],
-    ss_override: Option<&[SSType]>,
-    per_residue_colors: Option<&[[f32; 3]]>,
+/// Drive the shared per-chain backbone loop for one polymer block.
+///
+/// Owns the residue-counter bookkeeping in exactly one place -- the
+/// running whole-assembly `global_residue_idx` (threaded across calls,
+/// returned for the next block) and a call-local 0-based
+/// `residue_offset` into this block's color/guide slices. Both advance
+/// in lockstep, *including across the `< 2`-residue skip*, so the
+/// color-slice desync class (T1-NA-C) cannot be reintroduced by a
+/// hand-rolled counter inside a per-type body.
+///
+/// `n_residues_of` reports a chain's control-point count. `chain_mesh`
+/// builds the type-specific mesh and its bounding sphere from the chain,
+/// its index in `chains`, both residue indices, and the LOD-resolved
+/// [`MeshParams`]; the driver pushes the result and advances the
+/// counters.
+fn process_chains<C>(
+    chains: &[C],
     geo: &GeometryOptions,
     per_chain_lod: Option<&[ChainLod]>,
-) -> (BackboneMeshOutput, u32) {
-    let mut out = BackboneMeshOutput::default();
-    let mut global_residue_idx: u32 = 0;
+    out: &mut BackboneMeshOutput,
+    mut global_residue_idx: u32,
+    n_residues_of: impl Fn(&C) -> usize,
+    mut chain_mesh: impl FnMut(
+        &C,
+        usize,
+        u32,
+        usize,
+        &MeshParams,
+    ) -> (BackboneMeshOutput, Vec3, f32),
+) -> u32 {
     let spr = geo.segments_per_residue;
     let csv = geo.cross_section_verts;
+    let mut residue_offset: usize = 0;
 
-    for (chain_idx, atoms) in chains.iter().enumerate() {
-        if atoms.ca().len() < 2 {
-            global_residue_idx += atoms.ca().len() as u32;
+    for (chain_idx, chain) in chains.iter().enumerate() {
+        let n_residues = n_residues_of(chain);
+        if n_residues < 2 {
+            global_residue_idx += n_residues as u32;
+            residue_offset += n_residues;
             continue;
-        }
-
-        let n_residues = atoms.ca().len();
-        let chain_slice = ss_override.and_then(|o| {
-            let start = global_residue_idx as usize;
-            let end = (start + n_residues).min(o.len());
-            (end.saturating_sub(start) == n_residues).then(|| &o[start..end])
-        });
-        // Engine sync always installs per-entity SS via
-        // `Assembly::ss_types`, so every protein chain with >= 2 CA atoms
-        // has a matching slice. If that invariant is ever violated the
-        // chain renders as coil -- it doesn't recompute DSSP here.
-        let ss_types = chain_slice.map_or_else(
-            || vec![SSType::Coil; n_residues],
-            molex::analysis::merge_short_segments,
-        );
-
-        let mut profiles: Vec<CrossSectionProfile> = (0..n_residues)
-            .map(|i| {
-                let color = per_residue_colors
-                    .and_then(|c| {
-                        c.get(global_residue_idx as usize + i).copied()
-                    })
-                    .unwrap_or_else(|| ss_types[i].color());
-                resolve_profile(
-                    ss_types[i],
-                    global_residue_idx + i as u32,
-                    color,
-                    geo,
-                )
-            })
-            .collect();
-
-        if geo.sheet_arrows {
-            apply_sheet_arrows(&ss_types, &mut profiles, geo);
         }
 
         let lod = per_chain_lod
@@ -170,115 +271,26 @@ fn process_protein_chains(
                 segments_per_residue: spr,
                 cross_section_verts: csv,
             });
-
         let params = MeshParams {
             base_vertex: out.vertices.len() as u32,
             cross_section_verts: lod.cross_section_verts,
             segments_per_residue: lod.segments_per_residue,
         };
-        // Widest the extruded ribbon/tube can sit off the CA spline:
-        // the largest configured half-width/thickness, scaled by the
-        // x1.5 sheet-arrow shoulder, plus Catmull-Rom overshoot.
-        let max_extent = geo
-            .sheet_width
-            .max(geo.helix_width)
-            .max(geo.coil_width)
-            .max(geo.sheet_thickness)
-            .max(geo.helix_thickness)
-            .max(geo.coil_thickness)
-            * 1.5;
-        let (center, radius) =
-            bounding_sphere(atoms.ca(), max_extent + SPLINE_OVERSHOOT_SLACK);
 
-        let chain_mesh = generate_protein_chain_mesh(
-            atoms,
-            &ss_types,
-            &profiles,
+        let (chain_mesh_out, center, radius) = chain_mesh(
+            chain,
+            chain_idx,
             global_residue_idx,
+            residue_offset,
             &params,
         );
-        out.push_chain(chain_mesh, center, radius);
+        out.push_chain(chain_mesh_out, center, radius);
 
         global_residue_idx += n_residues as u32;
+        residue_offset += n_residues;
     }
 
-    (out, global_residue_idx)
-}
-
-fn process_na_chains(
-    chains: &[crate::renderer::entity_topology::NaBackboneChain],
-    geo: &GeometryOptions,
-    per_chain_lod: Option<&[ChainLod]>,
-    out: &mut BackboneMeshOutput,
-    mut global_residue_idx: u32,
-    na_residue_colors: Option<&[[f32; 3]]>,
-    na_seeds: Option<&[Option<Vec3>]>,
-    na_guide_dirs: Option<&[Vec3]>,
-) {
-    let spr = geo.segments_per_residue;
-    let csv = geo.cross_section_verts;
-
-    // Running index into the flat na_residue_colors slice.
-    let mut na_residue_offset: usize = 0;
-
-    for (na_idx, chain) in chains.iter().enumerate() {
-        let points = chain.p();
-        if points.len() < 2 {
-            global_residue_idx += points.len() as u32;
-            na_residue_offset += points.len();
-            continue;
-        }
-
-        let n_residues = points.len();
-        let profiles: Vec<CrossSectionProfile> = (0..n_residues)
-            .map(|i| {
-                let color = na_residue_colors
-                    .and_then(|c| c.get(na_residue_offset + i).copied())
-                    .unwrap_or(NA_DEFAULT_COLOR);
-                resolve_na_profile(global_residue_idx + i as u32, color, geo)
-            })
-            .collect();
-
-        let lod = per_chain_lod
-            .and_then(|l| l.get(na_idx).copied())
-            .unwrap_or(ChainLod {
-                segments_per_residue: spr,
-                cross_section_verts: csv,
-            });
-
-        let params = MeshParams {
-            base_vertex: out.vertices.len() as u32,
-            cross_section_verts: lod.cross_section_verts,
-            segments_per_residue: lod.segments_per_residue,
-        };
-        // The drawn NA geometry is not just the thin ribbon: base
-        // paddles + stems extend well off the P backbone (rendered by
-        // the separate NA renderer with no per-chain cull). Pad the
-        // sphere by that reach so an edge-on duplex doesn't frustum-cull
-        // its paddles while the backbone stays on screen.
-        let na_extent = geo.na_width.max(geo.na_thickness)
-            + NA_PADDLE_REACH_SLACK;
-        let (center, radius) =
-            bounding_sphere(points, na_extent + SPLINE_OVERSHOOT_SLACK);
-        let seed = na_seeds.and_then(|s| s.get(na_idx).copied()).flatten();
-        // Residue-parallel slice of the entity-wide C1'-P guide field.
-        let chain_guides: &[Vec3] = na_guide_dirs
-            .and_then(|g| {
-                g.get(na_residue_offset..na_residue_offset + n_residues)
-            })
-            .unwrap_or(&[]);
-        let chain_mesh = generate_na_chain_mesh(
-            points,
-            &profiles,
-            &params,
-            seed,
-            chain_guides,
-        );
-        out.push_chain(chain_mesh, center, radius);
-
-        global_residue_idx += n_residues as u32;
-        na_residue_offset += n_residues;
-    }
+    global_residue_idx
 }
 
 /// Catmull-Rom interpolation can bow outside the CA control hull at
@@ -483,7 +495,8 @@ fn smooth_directions(dirs: &[Vec3]) -> Vec<Vec3> {
 ///
 /// Mol* additionally swaps normal<->binormal and negates for NA, but
 /// that compensates for *Mol*'s* `addSheet` builder assigning the broad
-/// face to its binormal axis. viso's [`extrude_cross_section`] puts
+/// face to its binormal axis. viso's
+/// [`extrude_cross_section`](super::profile::extrude_cross_section) puts
 /// width along `binormal` and thickness along `normal`, so for the flat
 /// NA ribbon the broad-face normal *is* `frame.normal` -- porting Mol*'s
 /// swap on top would rotate the face 90deg twice. So we feed the
@@ -655,6 +668,60 @@ fn compute_final_frames(
 mod tests {
     use super::*;
 
+    /// Pins the T4-NA-B unification's load-bearing invariant: the single
+    /// `process_chains` driver advances `global_residue_idx` (threaded
+    /// across blocks) and the call-local 0-based `residue_offset` in
+    /// lockstep, including across the `< 2`-residue skip. This is the
+    /// exact desync class (T1-NA-C) the old hand-rolled per-type
+    /// counters were prone to. `C = usize` stands in for a chain's
+    /// residue count so the bookkeeping is tested independent of the
+    /// real protein/NA chain types.
+    #[test]
+    fn process_chains_threads_global_idx_and_resets_offset() {
+        let geo = GeometryOptions::default();
+        let mut out = BackboneMeshOutput::default();
+        let mut seen: Vec<(u32, usize)> = Vec::new();
+
+        // Protein-like block: chains of 3, 1 (skipped, < 2), 4 residues.
+        let after_protein = process_chains(
+            &[3usize, 1, 4],
+            &geo,
+            None,
+            &mut out,
+            0,
+            |&n| n,
+            |_c, _idx, gri, ro, _p| {
+                seen.push((gri, ro));
+                (BackboneMeshOutput::default(), Vec3::ZERO, 0.0)
+            },
+        );
+        // chain0 -> (gri=0, ro=0); chain1 (n=1) skipped but still
+        // advances both by 1; chain2 -> (gri=4, ro=4).
+        assert_eq!(seen, vec![(0, 0), (4, 4)]);
+        assert_eq!(after_protein, 8, "3 + 1(skip) + 4 residues threaded");
+
+        // NA-like block: offset resets to 0, global idx continues at 8.
+        seen.clear();
+        let after_na = process_chains(
+            &[2usize, 2],
+            &geo,
+            None,
+            &mut out,
+            after_protein,
+            |&n| n,
+            |_c, _idx, gri, ro, _p| {
+                seen.push((gri, ro));
+                (BackboneMeshOutput::default(), Vec3::ZERO, 0.0)
+            },
+        );
+        assert_eq!(
+            seen,
+            vec![(8, 0), (10, 2)],
+            "offset is call-local 0-based; global idx threads from 8",
+        );
+        assert_eq!(after_na, 12);
+    }
+
     fn profile_with_sheet_blend(sheet_blend: f32) -> CrossSectionProfile {
         CrossSectionProfile {
             width: 1.0,
@@ -816,8 +883,7 @@ mod tests {
             // Broad face along the +/-X direction.
             assert!(
                 f.normal.x.abs() > 0.98,
-                "frame {i}: ribbon face not along the direction \
-                 vector ({:?})",
+                "frame {i}: ribbon face not along the direction vector ({:?})",
                 f.normal,
             );
         }

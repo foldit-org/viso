@@ -145,8 +145,7 @@ fn generate_non_backbone_bytes(
     } else {
         Vec::new()
     };
-    let (na_stems, na_rings) =
-        NucleicAcidRenderer::generate_instances(&rings);
+    let (na_stems, na_rings) = NucleicAcidRenderer::generate_instances(&rings);
     let bns_atoms = if bns_spheres.is_empty() && bns_capsules.is_empty() {
         0
     } else {

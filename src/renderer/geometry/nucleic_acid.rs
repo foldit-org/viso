@@ -225,8 +225,8 @@ impl NucleicAcidRenderer {
         if degenerate_rings > 0 {
             log::warn!(
                 "NA: {degenerate_rings} base ring(s) skipped \
-                 (degenerate/out-of-range polygon) -- check for a \
-                 mis-named base family"
+                 (degenerate/out-of-range polygon) -- check for a mis-named \
+                 base family"
             );
         }
         if missing_p > 0 {
@@ -343,14 +343,20 @@ mod tests {
         let mut reversed = hexagon(1.0);
         reversed.reverse(); // flips the raw Newell sign
 
-        let rings =
-            vec![resolved(forward, 0), resolved(reversed.clone(), 0)];
-        let (_stems, polys) =
-            NucleicAcidRenderer::generate_instances(&rings);
+        let rings = vec![resolved(forward, 0), resolved(reversed.clone(), 0)];
+        let (_stems, polys) = NucleicAcidRenderer::generate_instances(&rings);
         assert_eq!(polys.len(), 2, "both hex rings should emit");
 
-        let n0 = Vec3::new(polys[0].normal[0], polys[0].normal[1], polys[0].normal[2]);
-        let n1 = Vec3::new(polys[1].normal[0], polys[1].normal[1], polys[1].normal[2]);
+        let n0 = Vec3::new(
+            polys[0].normal[0],
+            polys[0].normal[1],
+            polys[0].normal[2],
+        );
+        let n1 = Vec3::new(
+            polys[1].normal[0],
+            polys[1].normal[1],
+            polys[1].normal[2],
+        );
         assert!(
             n0.dot(n1) > 0.0,
             "reversed-winding base flipped the paddle normal (dot = {})",
@@ -361,10 +367,17 @@ mod tests {
         // chain keeps its raw (opposite) sign, proving the alignment is
         // per-strand and not a global force.
         let split = vec![resolved(hexagon(0.0), 0), resolved(reversed, 1)];
-        let (_s, polys2) =
-            NucleicAcidRenderer::generate_instances(&split);
-        let m0 = Vec3::new(polys2[0].normal[0], polys2[0].normal[1], polys2[0].normal[2]);
-        let m1 = Vec3::new(polys2[1].normal[0], polys2[1].normal[1], polys2[1].normal[2]);
+        let (_s, polys2) = NucleicAcidRenderer::generate_instances(&split);
+        let m0 = Vec3::new(
+            polys2[0].normal[0],
+            polys2[0].normal[1],
+            polys2[0].normal[2],
+        );
+        let m1 = Vec3::new(
+            polys2[1].normal[0],
+            polys2[1].normal[1],
+            polys2[1].normal[2],
+        );
         assert!(
             m0.dot(m1) < 0.0,
             "coherence leaked across a chain boundary (dot = {})",

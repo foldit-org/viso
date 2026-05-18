@@ -119,8 +119,8 @@ fn hermite(p0: Vec3, m0: Vec3, p1: Vec3, m1: Vec3, t: f32) -> Vec3 {
 
 /// Emit `segments_per_span` Catmull-Rom samples for the span starting at
 /// control point `j` (ending just before control point `j + 1`). Uses
-/// phantom endpoints (mirror extrapolation) at chain boundaries, matching
-/// [`catmull_rom`].
+/// phantom endpoints (mirror extrapolation, via [`ghost_neighbors`]) at
+/// chain boundaries.
 fn append_catmull_rom_span(
     points: &[Vec3],
     j: usize,
@@ -216,8 +216,8 @@ fn append_dual_hermite_span(
 /// spans where both endpoints are helix residues, and standard
 /// Catmull-Rom elsewhere.
 ///
-/// Produces the same sample layout as [`catmull_rom`]:
-/// `segments_per_span` samples per span plus one final endpoint.
+/// Sample layout: `segments_per_span` samples per span plus one final
+/// endpoint.
 pub(crate) fn helix_aware_spline(
     points: &[Vec3],
     ss_types: &[SSType],
@@ -248,8 +248,8 @@ pub(crate) fn helix_aware_spline(
 /// Spline a chain of control points using dual Hermite interpolation
 /// with filtered midpoint knots for every span.
 ///
-/// Same sample layout as [`catmull_rom`]: `segments_per_span` samples
-/// per span plus one final endpoint.
+/// Sample layout: `segments_per_span` samples per span plus one final
+/// endpoint.
 pub(crate) fn dual_hermite_spline(
     points: &[Vec3],
     segments_per_span: usize,
@@ -601,9 +601,8 @@ mod tests {
     fn na_rmf_no_flip_on_straight_then_curved() {
         // 8 straight samples along +Z, then a quarter circle in the
         // Z-X plane -- a strong inflection at the join.
-        let mut pos: Vec<Vec3> = (0..8)
-            .map(|i| Vec3::new(0.0, 0.0, i as f32))
-            .collect();
+        let mut pos: Vec<Vec3> =
+            (0..8).map(|i| Vec3::new(0.0, 0.0, i as f32)).collect();
         let r = 5.0;
         for k in 1..=12 {
             let a = (k as f32 / 12.0) * std::f32::consts::FRAC_PI_2;

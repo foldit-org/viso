@@ -170,10 +170,7 @@ pub(crate) fn derive_topology(
                 sidechain_layout: SidechainLayout::empty(),
                 ring_topology: na_ring_topology(na),
                 na_residue_base_colors: na_residue_base_colors(na),
-                na_guide_atom_indices: na_guide_atom_indices(
-                    na,
-                    molecule_type,
-                ),
+                na_guide_atom_indices: na_guide_atom_indices(na, molecule_type),
                 ss_types: Vec::new(),
                 atom_elements: atom_elements(&na.atoms),
                 atom_residue_index,
