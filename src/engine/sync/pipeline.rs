@@ -180,7 +180,7 @@ impl SyncPipeline {
         );
 
         let entity_options = Self::resolve_entity_options(annotations, options);
-        animation.set_pending_transitions(entity_transitions);
+        animation.merge_pending_transitions(entity_transitions);
 
         let generation = gpu.scene_processor.next_generation();
         log::debug!(
