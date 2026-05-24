@@ -1,44 +1,18 @@
-use std::fmt;
-
 /// Errors that can occur during GPU context initialization.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RenderContextError {
     /// Failed to create a wgpu surface from the window handle.
-    SurfaceCreation(wgpu::CreateSurfaceError),
+    #[error("surface creation failed: {0}")]
+    SurfaceCreation(#[source] wgpu::CreateSurfaceError),
     /// No compatible GPU adapter found.
-    AdapterRequest(wgpu::RequestAdapterError),
+    #[error("no compatible GPU adapter found: {0}")]
+    AdapterRequest(#[source] wgpu::RequestAdapterError),
     /// GPU device request failed (limits or features not met).
-    DeviceRequest(wgpu::RequestDeviceError),
+    #[error("device request failed: {0}")]
+    DeviceRequest(#[source] wgpu::RequestDeviceError),
     /// Surface configuration not supported by the selected adapter.
+    #[error("surface configuration not supported by adapter")]
     UnsupportedSurface,
-}
-
-impl fmt::Display for RenderContextError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::SurfaceCreation(e) => {
-                write!(f, "surface creation failed: {e}")
-            }
-            Self::AdapterRequest(e) => {
-                write!(f, "no compatible GPU adapter found: {e}")
-            }
-            Self::DeviceRequest(e) => write!(f, "device request failed: {e}"),
-            Self::UnsupportedSurface => {
-                write!(f, "surface configuration not supported by adapter")
-            }
-        }
-    }
-}
-
-impl std::error::Error for RenderContextError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::SurfaceCreation(e) => Some(e),
-            Self::AdapterRequest(e) => Some(e),
-            Self::DeviceRequest(e) => Some(e),
-            Self::UnsupportedSurface => None,
-        }
-    }
 }
 
 /// Owns the core wgpu resources: device, queue, surface, and configuration.
