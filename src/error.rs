@@ -20,6 +20,8 @@ pub enum VisoError {
     ThreadSpawn(std::io::Error),
     /// TOML options parsing/serialization failure.
     OptionsParse(String),
+    /// Color LUT parse/validation failure (e.g. Adobe `.cube`).
+    ColorLut(String),
     /// Viewer event-loop failure.
     Viewer(String),
     /// Shader compilation or composition failure.
@@ -40,6 +42,9 @@ impl fmt::Display for VisoError {
             }
             Self::OptionsParse(msg) => {
                 write!(f, "options parse error: {msg}")
+            }
+            Self::ColorLut(msg) => {
+                write!(f, "color LUT error: {msg}")
             }
             Self::Viewer(msg) => write!(f, "viewer error: {msg}"),
             Self::Shader(msg) => write!(f, "shader error: {msg}"),

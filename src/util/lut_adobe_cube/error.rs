@@ -64,10 +64,9 @@ impl std::fmt::Display for LutCubeParseError {
 
 impl std::error::Error for LutCubeParseError {}
 
-/// Converts into [`VisoError::OptionsParse`] using this error’s formatted
-/// message.
+/// Converts into [`VisoError::ColorLut`] using this error’s formatted message.
 impl From<LutCubeParseError> for VisoError {
     fn from(value: LutCubeParseError) -> Self {
-        Self::OptionsParse(value.to_string())
+        Self::ColorLut(value.to_string())
     }
 }

@@ -226,8 +226,8 @@ impl VisoEngine {
     ///
     /// # Errors
     ///
-    /// Returns [`VisoError::Io`] if the file cannot be read, parse errors when
-    /// the `.cube` contents are invalid, or [`VisoError::GpuResource`] if the
+    /// Returns [`VisoError::Io`] if the file cannot be read, [`VisoError::ColorLut`]
+    /// when the `.cube` contents are invalid, or [`VisoError::GpuResource`] if the
     /// LUT exceeds device 3D texture limits.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn set_color_lut_from_cube_path(
@@ -250,7 +250,7 @@ impl VisoEngine {
     ///
     /// # Errors
     ///
-    /// Returns parse errors when the `.cube` contents are invalid, or
+    /// Returns [`VisoError::ColorLut`] when the `.cube` contents are invalid, or
     /// [`VisoError::GpuResource`] if the LUT exceeds device 3D texture limits.
     pub fn set_color_lut_from_cube_bytes(
         &mut self,
