@@ -1,4 +1,4 @@
-//! [`SyncPipeline`] ZST — associated functions implementing the
+//! [`SyncPipeline`] ZST -- associated functions implementing the
 //! main-thread sync pipeline. Each method takes disjoint borrows of the
 //! engine's sub-structs (`Scene`, `EntityAnnotations`, `VisoOptions`,
 //! `GpuPipeline`, `AnimationState`) so the pipeline is expressible
@@ -24,7 +24,6 @@ use crate::animation::AnimationState;
 use crate::options::{
     DisplayOptions, DrawingMode, GeometryOptions, VisoOptions,
 };
-use crate::renderer::entity_topology::EntityTopology;
 use crate::renderer::gpu_pipeline::SceneChainData;
 use crate::renderer::pipeline::prepared::{
     FullRebuildBody, FullRebuildEntity, PreparedRebuild,
@@ -34,7 +33,7 @@ use crate::renderer::GpuPipeline;
 
 /// Main-thread sync pipeline.
 ///
-/// ZST — all methods are associated functions taking disjoint borrows of
+/// ZST -- all methods are associated functions taking disjoint borrows of
 /// the engine's sub-structs. Per-sync working state (ribbon cache, flat
 /// color buffers, etc.) is rebuilt inside each call rather than cached
 /// on the pipeline.
@@ -181,7 +180,7 @@ impl SyncPipeline {
         );
 
         let entity_options = Self::resolve_entity_options(annotations, options);
-        animation.set_pending_transitions(entity_transitions);
+        animation.merge_pending_transitions(entity_transitions);
 
         let generation = gpu.scene_processor.next_generation();
         log::debug!(
@@ -204,7 +203,7 @@ impl SyncPipeline {
     /// [`SceneRenderState::update_structural_bonds`] produce this
     /// frame's `Vec<StructuralBond>` directly on
     /// `scene.render_state`. The resolver reads visibility, drawing
-    /// mode, and topology straight off the engine's existing maps —
+    /// mode, and topology straight off the engine's existing maps --
     /// the only thing worth caching is the spline projection.
     fn resolve_structural_bonds_into_render_state(
         scene: &mut Scene,
@@ -257,18 +256,15 @@ impl SyncPipeline {
     }
 
     /// Build the per-sync FullRebuild payload: for each visible entity,
-    /// compute per-residue colors + sheet-plane normals from current
-    /// display options, positions, and hbonds. Caches colors onto
-    /// `EntityView` so main-thread color uploads can concatenate
-    /// without recomputing. Sheet normals have no main-thread reader and
-    /// live only on the request.
+    /// compute per-residue colors from current display options and
+    /// positions. Caches colors onto `EntityView` so main-thread color
+    /// uploads can concatenate without recomputing.
     fn build_full_rebuild_entities(
         scene: &mut Scene,
         annotations: &EntityAnnotations,
         options: &VisoOptions,
     ) -> Vec<FullRebuildEntity> {
         let assembly = Arc::clone(&scene.current);
-        let hbond_ranges = protein_hbond_ranges(assembly.as_ref());
         let mut result = Vec::new();
 
         for (entity_index, entity) in assembly.entities().iter().enumerate() {
@@ -292,7 +288,7 @@ impl SyncPipeline {
                 .clone()
                 .unwrap_or_else(|| state.topology.ss_types.clone());
             let backbone_chains =
-                state.topology.backbone_chain_positions(&positions);
+                state.topology.protein_backbone_chains(&positions);
             let per_residue_colors = if state.topology.is_protein() {
                 per_entity_colors(
                     entity_index,
@@ -304,21 +300,6 @@ impl SyncPipeline {
             } else {
                 None
             };
-            let sheet_plane_normals = if state.topology.is_protein()
-                && state.drawing_mode == DrawingMode::Cartoon
-            {
-                entity_sheet_plane_normals(
-                    assembly.as_ref(),
-                    eid,
-                    &ss_types,
-                    &positions,
-                    &state.topology,
-                    &hbond_ranges,
-                )
-            } else {
-                Vec::new()
-            };
-
             state.per_residue_colors.clone_from(&per_residue_colors);
 
             result.push(FullRebuildEntity {
@@ -329,7 +310,6 @@ impl SyncPipeline {
                 positions,
                 ss_override: state.ss_override.clone(),
                 per_residue_colors,
-                sheet_plane_normals,
             });
         }
         result
@@ -357,12 +337,14 @@ impl SyncPipeline {
     }
 
     /// Flatten per-entity backbone / NA chains in assembly order. Only
-    /// Cartoon-mode protein entities contribute to the flat backbone
-    /// (matching pre-migration behaviour).
+    /// Cartoon-mode protein entities contribute to the flat backbone.
     fn flat_scene_chains(
         scene: &Scene,
         annotations: &EntityAnnotations,
-    ) -> (Vec<Vec<Vec3>>, Vec<Vec<Vec3>>) {
+    ) -> (
+        Vec<crate::renderer::entity_topology::ProteinBackboneChain>,
+        Vec<crate::renderer::entity_topology::NaBackboneChain>,
+    ) {
         let mut backbone = Vec::new();
         let mut na = Vec::new();
         for (_, eid, state) in scene.visible_entities(annotations) {
@@ -373,9 +355,11 @@ impl SyncPipeline {
                 && state.drawing_mode == DrawingMode::Cartoon
             {
                 backbone
-                    .extend(state.topology.backbone_chain_positions(positions));
+                    .extend(state.topology.protein_backbone_chains(positions));
             } else if state.topology.is_nucleic_acid() {
-                na.extend(state.topology.backbone_chain_positions(positions));
+                na.extend(
+                    state.topology.na_backbone_chain_positions(positions),
+                );
             }
         }
         (backbone, na)
@@ -448,7 +432,7 @@ impl SyncPipeline {
             if current.len() != target.len() {
                 // Atom layout changed (e.g. mutation rebuilds
                 // sidechains). Snap positions to target so the renderer
-                // reflects the new layout immediately — interpolation
+                // reflects the new layout immediately -- interpolation
                 // is meaningless across mismatched shapes.
                 scene.positions.set(eid, target.clone());
                 if !transition.allows_size_change {
@@ -591,7 +575,7 @@ impl SyncPipeline {
                 .clone()
                 .unwrap_or_else(|| state.topology.ss_types.clone());
             let backbone_chains =
-                state.topology.backbone_chain_positions(&positions);
+                state.topology.protein_backbone_chains(&positions);
             state.per_residue_colors = per_entity_colors(
                 entity_index,
                 &backbone_chains,
@@ -607,86 +591,11 @@ impl SyncPipeline {
     }
 }
 
-// ── Helpers ──
-
-/// Flat-index range of each protein entity in `assembly.hbonds()`.
-///
-/// `assembly.hbonds()` indexes into a concatenated flat array of
-/// `ProteinEntity::to_backbone()` outputs in entity order. This
-/// rebuilds the same per-entity offsets so sync can filter hbonds to
-/// a single entity.
-fn protein_hbond_ranges(
-    assembly: &Assembly,
-) -> FxHashMap<EntityId, (u32, u32)> {
-    let mut ranges = FxHashMap::default();
-    let mut offset: u32 = 0;
-    for entity in assembly.entities() {
-        let Some(protein) = entity.as_protein() else {
-            continue;
-        };
-        let n = protein.residues.len() as u32;
-        let _ = ranges.insert(protein.id, (offset, offset + n));
-        offset += n;
-    }
-    ranges
-}
-
-fn entity_sheet_plane_normals(
-    assembly: &Assembly,
-    eid: EntityId,
-    ss_types: &[SSType],
-    positions: &[Vec3],
-    topology: &EntityTopology,
-    ranges: &FxHashMap<EntityId, (u32, u32)>,
-) -> Vec<(u32, Vec3)> {
-    let Some(&(start, end)) = ranges.get(&eid) else {
-        return Vec::new();
-    };
-    if end <= start {
-        return Vec::new();
-    }
-
-    let hbonds_slice: Vec<molex::HBond> = assembly
-        .hbonds()
-        .iter()
-        .filter_map(|h| {
-            let donor = h.donor as u32;
-            let acceptor = h.acceptor as u32;
-            if donor >= start
-                && donor < end
-                && acceptor >= start
-                && acceptor < end
-            {
-                Some(molex::HBond {
-                    donor: (donor - start) as usize,
-                    acceptor: (acceptor - start) as usize,
-                    energy: h.energy,
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let ca_positions: Vec<Vec3> = topology
-        .residue_atom_ranges
-        .iter()
-        .map(|range| {
-            let ca_idx = range.start as usize + 1;
-            positions.get(ca_idx).copied().unwrap_or(Vec3::ZERO)
-        })
-        .collect();
-
-    crate::renderer::geometry::backbone::sheet_fit::compute_sheet_plane_normals(
-        &hbonds_slice,
-        ss_types,
-        &ca_positions,
-    )
-}
+// -- Helpers --
 
 fn per_entity_colors(
     entity_index: usize,
-    backbone_chains: &[Vec<Vec3>],
+    backbone_chains: &[crate::renderer::entity_topology::ProteinBackboneChain],
     ss_types: &[SSType],
     scores: Option<&[f64]>,
     display: &DisplayOptions,

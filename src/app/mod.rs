@@ -28,7 +28,7 @@ pub mod web;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use molex::ops::codec::{update_protein_entities, Coords};
+use molex::ops::edit::AssemblyEdit;
 use molex::{Assembly, MoleculeEntity, MoleculeType, SSType};
 
 use crate::animation::transition::Transition;
@@ -261,49 +261,16 @@ impl VisoApp {
                 "Entity {raw_id} not found"
             )));
         }
-        self.assembly.remove_entity(entity.id());
-        self.assembly.add_entity(entity);
+        let entity_id = entity.id();
+        let _ = self.assembly.apply_edits(&[
+            AssemblyEdit::RemoveEntity { entity: entity_id },
+            AssemblyEdit::AddEntity { entity },
+        ]);
 
         engine.queue_entity_transition(raw_id, transition);
         self.publish(engine);
         engine.sync_now();
         Ok(())
-    }
-
-    /// Update atom coordinates for an entity. For proteins this uses
-    /// the shared `update_protein_entities` codec so caller-provided
-    /// [`Coords`] values are applied consistently with the byte
-    /// format.
-    pub fn update_entity_coords(
-        &mut self,
-        engine: &mut VisoEngine,
-        id: u32,
-        coords: &Coords,
-        transition: Transition,
-    ) {
-        let Some(eid) = self
-            .assembly
-            .entities()
-            .iter()
-            .map(|e| e.id())
-            .find(|e| e.raw() == id)
-        else {
-            return;
-        };
-        let Some(entity) = self.assembly.entity(eid).cloned() else {
-            return;
-        };
-
-        let mut entities = vec![entity];
-        update_protein_entities(&mut entities, coords);
-        if let Some(updated) = entities.into_iter().next() {
-            self.assembly.remove_entity(eid);
-            self.assembly.add_entity(updated);
-        }
-
-        engine.queue_entity_transition(id, transition);
-        self.publish(engine);
-        engine.sync_now();
     }
 
     /// Reconcile the scene with `entities`. New IDs are added; IDs
@@ -363,7 +330,9 @@ impl VisoApp {
             return;
         };
         engine.clear_entity_behavior(eid);
-        self.assembly.remove_entity(eid);
+        let _ = self
+            .assembly
+            .apply_edit(&AssemblyEdit::RemoveEntity { entity: eid });
         self.publish(engine);
         engine.sync_now();
     }

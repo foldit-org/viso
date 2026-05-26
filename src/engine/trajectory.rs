@@ -188,7 +188,7 @@ pub(crate) fn build_backbone_atom_indices(
         };
 
         let is_sequence_gap =
-            last_res_num.is_some_and(|r| (res.number - r).abs() > 1);
+            last_res_num.is_some_and(|r| (res.label_seq_id - r).abs() > 1);
         if is_sequence_gap && !current_chain_indices.is_empty() {
             indices.append(&mut current_chain_indices);
         }
@@ -196,7 +196,7 @@ pub(crate) fn build_backbone_atom_indices(
         current_chain_indices.push(n);
         current_chain_indices.push(ca);
         current_chain_indices.push(c);
-        last_res_num = Some(res.number);
+        last_res_num = Some(res.label_seq_id);
     }
 
     if !current_chain_indices.is_empty() {

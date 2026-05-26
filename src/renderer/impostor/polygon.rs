@@ -12,11 +12,11 @@ pub(crate) struct ExtrudedPolygonInstance {
     pub(crate) v0: [f32; 4],
     /// xyz = vertex 1, w = half_thickness
     pub(crate) v1: [f32; 4],
-    /// xyz = vertex 2, w = unused
+    /// xyz = vertex 2, w = polygon centroid x (precomputed for the shader)
     pub(crate) v2: [f32; 4],
-    /// xyz = vertex 3, w = unused
+    /// xyz = vertex 3, w = polygon centroid y (precomputed for the shader)
     pub(crate) v3: [f32; 4],
-    /// xyz = vertex 4, w = unused
+    /// xyz = vertex 4, w = polygon centroid z (precomputed for the shader)
     pub(crate) v4: [f32; 4],
     /// xyz = vertex 5 (degenerate = centroid for pentagons), w = unused
     pub(crate) v5: [f32; 4],

@@ -1,6 +1,6 @@
 //! Spline math and frame computation for backbone geometry.
 //!
-//! Pure Vec3 → Vec3 transforms.
+//! Pure Vec3 -> Vec3 transforms.
 
 use glam::Vec3;
 use molex::SSType;
@@ -14,59 +14,90 @@ pub(crate) struct SplinePoint {
     pub(crate) binormal: Vec3,
 }
 
-/// Catmull-Rom spline interpolation (passes through all control points).
-pub(crate) fn catmull_rom(
-    points: &[Vec3],
-    segments_per_span: usize,
-) -> Vec<Vec3> {
+/// Position + tangent only -- the pre-frame intermediate along a spline.
+///
+/// A completed [`SplinePoint`] (with orthonormal normal/binormal) is
+/// produced from a slice of these by [`rmf_frames`]. Carrying this
+/// distinct type keeps the invalid "frame with zeroed normal/binormal"
+/// state out of the mesh path entirely.
+#[derive(Clone, Copy)]
+pub(crate) struct SplineTrace {
+    pub(crate) pos: Vec3,
+    pub(crate) tangent: Vec3,
+}
+
+/// Build position+tangent traces from spline positions and tangents.
+pub(crate) fn build_traces(
+    spline: &[Vec3],
+    tangents: &[Vec3],
+) -> Vec<SplineTrace> {
+    spline
+        .iter()
+        .zip(tangents.iter())
+        .map(|(&pos, &tangent)| SplineTrace { pos, tangent })
+        .collect()
+}
+
+/// Phantom (ghost) neighbor control points for the span starting at
+/// control point `j` (ending at `j + 1`).
+///
+/// Catmull-Rom needs `points[j-1]` and `points[j+2]`; at the chain
+/// boundaries those don't exist and are mirror-extrapolated
+/// (`2*endpoint - adjacent`) so the curve stays symmetric. Returns
+/// `(p0, p3)` -- the outer pair flanking `points[j]`/`points[j+1]`.
+fn ghost_neighbors(points: &[Vec3], j: usize) -> (Vec3, Vec3) {
     let n = points.len();
-    if n < 2 {
-        return points.to_vec();
-    }
-    if n < 3 {
-        return linear_interpolate(points, segments_per_span);
-    }
+    let p0 = if j == 0 {
+        points[0] * 2.0 - points[1]
+    } else {
+        points[j - 1]
+    };
+    let p3 = if j + 2 >= n {
+        points[n - 1] * 2.0 - points[n - 2]
+    } else {
+        points[j + 2]
+    };
+    (p0, p3)
+}
 
-    let mut result = Vec::new();
+/// Catmull-Rom cubic basis at parameter `t in [0, 1]` for one span's four
+/// control points (`p1`/`p2` are the span endpoints, `p0`/`p3` flank).
+fn catmull_rom_basis(p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, t: f32) -> Vec3 {
+    let t2 = t * t;
+    let t3 = t2 * t;
+    0.5 * ((2.0 * p1)
+        + (-p0 + p2) * t
+        + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+        + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
+}
 
-    for i in 0..n - 1 {
-        let p0 = if i == 0 {
-            points[0] * 2.0 - points[1]
-        } else {
-            points[i - 1]
-        };
-        let p1 = points[i];
-        let p2 = points[i + 1];
-        let p3 = if i + 2 >= n {
-            points[n - 1] * 2.0 - points[n - 2]
-        } else {
-            points[i + 2]
-        };
-
-        for j in 0..segments_per_span {
-            let t = j as f32 / segments_per_span as f32;
-            let t2 = t * t;
-            let t3 = t2 * t;
-
-            let pos = 0.5
-                * ((2.0 * p1)
-                    + (-p0 + p2) * t
-                    + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
-                    + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3);
-            result.push(pos);
-        }
-    }
-
-    result.push(points[n - 1]);
-    result
+/// Map spline sample `i` (of `total_spline`) to the bracketing per-
+/// residue indices `(r0, r1)` and the blend parameter `t in [0, 1]`
+/// between them.
+///
+/// Shared core of
+/// [`interpolate_profiles`](super::profile::interpolate_profiles) and
+/// [`interpolate_per_residue_normals`](super::path::interpolate_per_residue_normals);
+/// each applies its own pairwise blend (plain lerp vs. the hemisphere-
+/// aligned normal lerp) on top of this identical index math.
+pub(crate) fn residue_bracket(
+    i: usize,
+    total_spline: usize,
+    n_residues: usize,
+) -> (usize, usize, f32) {
+    let frac = i as f32 / (total_spline - 1).max(1) as f32;
+    let rf = frac * (n_residues - 1) as f32;
+    let r0 = (rf.floor() as usize).min(n_residues - 1);
+    let r1 = (r0 + 1).min(n_residues - 1);
+    (r0, r1, rf - r0 as f32)
 }
 
 /// Evaluate a single point on the Catmull-Rom spline.
 ///
 /// `span` selects which pair of control points (0..n-2), and `t` is the
 /// parameter within that span (0.0 = start control point, 1.0 = end).
-/// Uses the same phantom-point extrapolation as [`catmull_rom`] for
-/// boundary spans.
+/// Uses phantom-point extrapolation (`ghost_neighbors`) for boundary
+/// spans.
 pub(crate) fn catmull_rom_eval(
     points: &[Vec3],
     span: usize,
@@ -77,33 +108,15 @@ pub(crate) fn catmull_rom_eval(
         return None;
     }
 
-    let p0 = if span == 0 {
-        points[0] * 2.0 - points[1]
-    } else {
-        points[span - 1]
-    };
+    let (p0, p3) = ghost_neighbors(points, span);
     let p1 = points[span];
     let p2 = points[span + 1];
-    let p3 = if span + 2 >= n {
-        points[n - 1] * 2.0 - points[n - 2]
-    } else {
-        points[span + 2]
-    };
-
-    let t2 = t * t;
-    let t3 = t2 * t;
-
-    Some(
-        0.5 * ((2.0 * p1)
-            + (-p0 + p2) * t
-            + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
-            + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3),
-    )
+    Some(catmull_rom_basis(p0, p1, p2, p3, t))
 }
 
 /// Cubic Hermite evaluation with explicit endpoint positions and tangents.
 ///
-/// `t ∈ [0, 1]`. Tangent magnitudes are in "position units per unit `t`",
+/// `t in [0, 1]`. Tangent magnitudes are in "position units per unit `t`",
 /// so their scale must be commensurate with the knot spacing (roughly one
 /// knot interval) or the curve will overshoot.
 fn hermite(p0: Vec3, m0: Vec3, p1: Vec3, m1: Vec3, t: f32) -> Vec3 {
@@ -118,38 +131,21 @@ fn hermite(p0: Vec3, m0: Vec3, p1: Vec3, m1: Vec3, t: f32) -> Vec3 {
 
 /// Emit `segments_per_span` Catmull-Rom samples for the span starting at
 /// control point `j` (ending just before control point `j + 1`). Uses
-/// phantom endpoints (mirror extrapolation) at chain boundaries, matching
-/// [`catmull_rom`].
+/// phantom endpoints (mirror extrapolation, via [`ghost_neighbors`]) at
+/// chain boundaries.
 fn append_catmull_rom_span(
     points: &[Vec3],
     j: usize,
     segments_per_span: usize,
     out: &mut Vec<Vec3>,
 ) {
-    let n = points.len();
-    let p0 = if j == 0 {
-        points[0] * 2.0 - points[1]
-    } else {
-        points[j - 1]
-    };
+    let (p0, p3) = ghost_neighbors(points, j);
     let p1 = points[j];
     let p2 = points[j + 1];
-    let p3 = if j + 2 >= n {
-        points[n - 1] * 2.0 - points[n - 2]
-    } else {
-        points[j + 2]
-    };
 
     for s in 0..segments_per_span {
         let t = s as f32 / segments_per_span as f32;
-        let t2 = t * t;
-        let t3 = t2 * t;
-        let pos = 0.5
-            * ((2.0 * p1)
-                + (-p0 + p2) * t
-                + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
-                + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3);
-        out.push(pos);
+        out.push(catmull_rom_basis(p0, p1, p2, p3, t));
     }
 }
 
@@ -159,33 +155,23 @@ fn append_catmull_rom_span(
 /// 0.25, so the midpoint sits slightly outside the straight chord
 /// midpoint to track curvature. Reflects at chain boundaries.
 fn filtered_midpoint(points: &[Vec3], j: usize) -> Vec3 {
-    let n = points.len();
-    let ca_prev = if j == 0 {
-        points[0] * 2.0 - points[1]
-    } else {
-        points[j - 1]
-    };
+    let (ca_prev, ca_next) = ghost_neighbors(points, j);
     let ca_j = points[j];
     let ca_j1 = points[j + 1];
-    let ca_next = if j + 2 >= n {
-        points[n - 1] * 2.0 - points[n - 2]
-    } else {
-        points[j + 2]
-    };
-    // 0.5·((1 + 0.25)·(ca[j] + ca[j+1]) − 0.25·(ca[j−1] + ca[j+2]))
-    //   = 0.625·(ca[j] + ca[j+1]) − 0.125·(ca[j−1] + ca[j+2])
+    // 0.5*((1 + 0.25)*(ca[j] + ca[j+1]) - 0.25*(ca[j-1] + ca[j+2]))
+    //   = 0.625*(ca[j] + ca[j+1]) - 0.125*(ca[j-1] + ca[j+2])
     (ca_j + ca_j1) * 0.625 - (ca_prev + ca_next) * 0.125
 }
 
 /// Emit `segments_per_span` samples for the span starting at control
 /// point `j` using a dual cubic Hermite with a filtered midpoint knot.
 ///
-/// The span `CA[j] → CA[j+1]` is split in half by a 4-tap filtered
+/// The span `CA[j] -> CA[j+1]` is split in half by a 4-tap filtered
 /// midpoint, and each half becomes a cubic Hermite segment. Tangents at
-/// all four knots (`CA[j−1]`-ish, `CA[j]`, mid, `CA[j+1]`) are derived from
+/// all four knots (`CA[j-1]`-ish, `CA[j]`, mid, `CA[j+1]`) are derived from
 /// Catmull-Rom central differences on the interleaved CA/midpoint
 /// sequence, so their magnitudes are naturally proportional to the
-/// local knot spacing — no hand-tuned scalars. Inserting the midpoint
+/// local knot spacing -- no hand-tuned scalars. Inserting the midpoint
 /// halves each cubic span, which keeps each cubic "honest" and
 /// eliminates the square-fold overshoot Catmull-Rom produces when it
 /// tries to interpolate a rotating helical CA sequence across a full
@@ -215,7 +201,7 @@ fn append_dual_hermite_span(
 
     // Catmull-Rom tangents on the interleaved sequence
     //     [..., mid_prev, CA[j], mid, CA[j+1], mid_next, ...]
-    // which gives each tangent magnitude ≈ half the two-knot chord,
+    // which gives each tangent magnitude ~ half the two-knot chord,
     // i.e. naturally proportional to the local spacing. C1 continuous
     // across both the CA and the midpoint joins by construction.
     let tangent_j = (mid - mid_prev) * 0.5;
@@ -242,8 +228,8 @@ fn append_dual_hermite_span(
 /// spans where both endpoints are helix residues, and standard
 /// Catmull-Rom elsewhere.
 ///
-/// Produces the same sample layout as [`catmull_rom`]:
-/// `segments_per_span` samples per span plus one final endpoint.
+/// Sample layout: `segments_per_span` samples per span plus one final
+/// endpoint.
 pub(crate) fn helix_aware_spline(
     points: &[Vec3],
     ss_types: &[SSType],
@@ -274,8 +260,8 @@ pub(crate) fn helix_aware_spline(
 /// Spline a chain of control points using dual Hermite interpolation
 /// with filtered midpoint knots for every span.
 ///
-/// Same sample layout as [`catmull_rom`]: `segments_per_span` samples
-/// per span plus one final endpoint.
+/// Sample layout: `segments_per_span` samples per span plus one final
+/// endpoint.
 pub(crate) fn dual_hermite_spline(
     points: &[Vec3],
     segments_per_span: usize,
@@ -292,113 +278,6 @@ pub(crate) fn dual_hermite_spline(
     for j in 0..n - 1 {
         append_dual_hermite_span(points, j, segments_per_span, &mut result);
     }
-    result.push(points[n - 1]);
-    result
-}
-
-/// Project backbone N and C atom positions onto the Catmull-Rom spline
-/// defined by CA control points.
-///
-/// Returns `(n_positions, c_positions)` — one per residue — sitting on
-/// the rendered backbone curve. Fractional positions are derived from
-/// standard peptide bond lengths (CA→C ≈ 1.52 Å, C→N ≈ 1.33 Å,
-/// N→CA ≈ 1.47 Å).
-///
-/// Edge residues (first N, last C in each chain) use the raw backbone
-/// positions since they fall outside the spline's control-point range.
-pub(crate) fn project_backbone_atoms(
-    backbone_chains: &[Vec<Vec3>],
-) -> (Vec<Vec3>, Vec<Vec3>) {
-    /// Fraction of CA→CA span where C sits (CA→C / total).
-    const C_FRAC: f32 = 0.35;
-    /// Fraction of CA→CA span where N sits (measured from previous CA).
-    const N_FRAC: f32 = 0.66;
-
-    let mut all_n = Vec::new();
-    let mut all_c = Vec::new();
-
-    for chain in backbone_chains {
-        let residues: Vec<[Vec3; 3]> = chain
-            .chunks_exact(3)
-            .map(|tri| [tri[0], tri[1], tri[2]])
-            .collect();
-        let n = residues.len();
-        if n == 0 {
-            continue;
-        }
-
-        let ca: Vec<Vec3> = residues.iter().map(|r| r[1]).collect();
-
-        for (i, res) in residues.iter().enumerate() {
-            // N position: on the spline at N_FRAC into span (i-1 → i).
-            let n_pos = if i == 0 || ca.len() < 2 {
-                res[0] // raw N for first residue
-            } else {
-                catmull_rom_eval(&ca, i - 1, N_FRAC).unwrap_or(res[0])
-            };
-
-            // C position: on the spline at C_FRAC into span (i → i+1).
-            let c_pos = if i >= n - 1 || ca.len() < 2 {
-                res[2] // raw C for last residue
-            } else {
-                catmull_rom_eval(&ca, i, C_FRAC).unwrap_or(res[2])
-            };
-
-            all_n.push(n_pos);
-            all_c.push(c_pos);
-        }
-    }
-
-    (all_n, all_c)
-}
-
-/// Cubic B-spline (smooth approximation, does not pass through control points).
-/// Used for helix axis smoothing.
-pub(crate) fn cubic_bspline(
-    points: &[Vec3],
-    segments_per_span: usize,
-) -> Vec<Vec3> {
-    let n = points.len();
-    if n < 2 {
-        return points.to_vec();
-    }
-    if n < 4 {
-        return linear_interpolate(points, segments_per_span);
-    }
-
-    let mut result = Vec::new();
-
-    fn b0(t: f32) -> f32 {
-        (1.0 - t).powi(3) / 6.0
-    }
-    fn b1(t: f32) -> f32 {
-        (3.0 * t.powi(3) - 6.0 * t.powi(2) + 4.0) / 6.0
-    }
-    fn b2(t: f32) -> f32 {
-        (-3.0 * t.powi(3) + 3.0 * t.powi(2) + 3.0 * t + 1.0) / 6.0
-    }
-    fn b3(t: f32) -> f32 {
-        t.powi(3) / 6.0
-    }
-
-    let mut padded = Vec::with_capacity(n + 2);
-    padded.push(points[0] * 2.0 - points[1]);
-    padded.extend_from_slice(points);
-    padded.push(points[n - 1] * 2.0 - points[n - 2]);
-
-    for i in 0..n - 1 {
-        let p0 = padded[i];
-        let p1 = padded[i + 1];
-        let p2 = padded[i + 2];
-        let p3 = padded[i + 3];
-
-        for j in 0..segments_per_span {
-            let t = j as f32 / segments_per_span as f32;
-            let pos = p0 * b0(t) + p1 * b1(t) + p2 * b2(t) + p3 * b3(t);
-            result.push(pos);
-        }
-    }
-
     result.push(points[n - 1]);
     result
 }
@@ -421,68 +300,39 @@ pub(crate) fn linear_interpolate(
     result
 }
 
-/// Compute approximate helix axis points via sliding-window average.
-pub(crate) fn compute_helix_axis_points(ca_positions: &[Vec3]) -> Vec<Vec3> {
-    let n = ca_positions.len();
-    let window = 4; // ~one helix turn
-
-    let mut centers = Vec::with_capacity(n);
-    for i in 0..n {
-        let start = i.saturating_sub(window / 2);
-        let end = (i + window / 2 + 1).min(n);
-        let mut sum = Vec3::ZERO;
-        for pos in &ca_positions[start..end] {
-            sum += *pos;
-        }
-        centers.push(sum / (end - start) as f32);
-    }
-    centers
+/// The single construction site of the position-only `SplinePoint`
+/// shell. Every normal/binormal is filled by the frame solver
+/// ([`compute_rmf`]) before any consumer sees the result, so a
+/// half-built frame never escapes this module.
+fn shells_from_traces(traces: &[SplineTrace]) -> Vec<SplinePoint> {
+    traces
+        .iter()
+        .map(|t| SplinePoint {
+            pos: t.pos,
+            tangent: t.tangent,
+            normal: Vec3::ZERO,
+            binormal: Vec3::ZERO,
+        })
+        .collect()
 }
 
-/// Compute Frenet frames (curvature-based) for helical traces.
+/// Build rotation-minimizing frames from position+tangent traces.
 ///
-/// The Frenet normal points away from the center of curvature, so the
-/// ribbon twists naturally with helical geometry (DNA/RNA backbones).
-/// Falls back to an arbitrary frame on straight segments.
-pub(crate) fn compute_frenet_frames(points: &mut [SplinePoint]) {
-    if points.len() < 2 {
-        return;
+/// `seed` is the chain-roll seed -- the first residue's peptide-plane
+/// normal. When `Some`, it feeds [`compute_rmf`]'s frame-0 projection so
+/// the whole chain's roll is fixed by backbone geometry rather than a
+/// world axis; `None` lets `compute_rmf` fall back to a world axis. This
+/// is the typed replacement for mutating a zeroed `frames[0].normal`.
+pub(crate) fn rmf_frames(
+    traces: &[SplineTrace],
+    seed: Option<Vec3>,
+) -> Vec<SplinePoint> {
+    let mut frames = shells_from_traces(traces);
+    if let (Some(seed), Some(first)) = (seed, frames.first_mut()) {
+        first.normal = seed;
     }
-
-    let n = points.len();
-
-    // Curvature vector (dT/ds) at each point via finite differences
-    let curvatures: Vec<Vec3> = (0..n)
-        .map(|i| {
-            if i == 0 {
-                points[1].tangent - points[0].tangent
-            } else if i == n - 1 {
-                points[n - 1].tangent - points[n - 2].tangent
-            } else {
-                (points[i + 1].tangent - points[i - 1].tangent) * 0.5
-            }
-        })
-        .collect();
-
-    for i in 0..n {
-        let t = points[i].tangent;
-        let curv = curvatures[i];
-
-        if curv.length() > 1e-6 {
-            // Negate Frenet normal for outward-pointing ribbon normal
-            let normal = -curv.normalize();
-            let normal = (normal - t * t.dot(normal)).normalize();
-            let binormal = t.cross(normal).normalize();
-            points[i].normal = normal;
-            points[i].binormal = binormal;
-        } else {
-            let arbitrary = if t.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
-            let normal = t.cross(arbitrary).normalize();
-            let binormal = t.cross(normal).normalize();
-            points[i].normal = normal;
-            points[i].binormal = binormal;
-        }
-    }
+    compute_rmf(&mut frames);
+    frames
 }
 
 /// Compute Rotation Minimizing Frames using the double reflection method
@@ -493,8 +343,18 @@ pub(crate) fn compute_rmf(points: &mut [SplinePoint]) {
     }
 
     let t0 = points[0].tangent;
-    let arbitrary = if t0.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
-    let n0 = t0.cross(arbitrary).normalize();
+    // Seed the chain roll from `points[0].normal` (a chain-geometry
+    // quantity supplied by the caller) projected perpendicular to the
+    // first tangent. Falls back to a world axis only when no usable seed
+    // is given, so the roll is fixed by geometry rather than by which
+    // world octant the chain happens to load in.
+    let seed = points[0].normal - t0 * t0.dot(points[0].normal);
+    let n0 = if seed.length_squared() > 1e-6 {
+        seed.normalize()
+    } else {
+        let arbitrary = if t0.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
+        t0.cross(arbitrary).normalize()
+    };
     let b0 = t0.cross(n0).normalize();
 
     points[0].normal = n0;
@@ -562,86 +422,6 @@ mod tests {
     }
 
     #[test]
-    fn catmull_rom_endpoints() {
-        let pts: Vec<Vec3> = (0..5)
-            .map(|i| Vec3::new(i as f32 * 2.0, 0.0, 0.0))
-            .collect();
-        let result = catmull_rom(&pts, 4);
-        assert!(approx_eq(result[0], pts[0]));
-        assert!(approx_eq(*result.last().unwrap(), *pts.last().unwrap()));
-    }
-
-    #[test]
-    fn catmull_rom_passes_through() {
-        let pts: Vec<Vec3> = (0..5)
-            .map(|i| Vec3::new(i as f32 * 3.0, (i as f32).sin(), 0.0))
-            .collect();
-        let segs = 8;
-        let result = catmull_rom(&pts, segs);
-        // At span boundaries (every `segs` samples), output ≈ control point
-        for (i, pt) in pts.iter().enumerate() {
-            let idx = if i == pts.len() - 1 {
-                result.len() - 1
-            } else {
-                i * segs
-            };
-            assert!(
-                approx_eq(result[idx], *pt),
-                "span {i}: expected {pt:?}, got {:?}",
-                result[idx]
-            );
-        }
-    }
-
-    #[test]
-    fn catmull_rom_two_points_linear() {
-        let pts = vec![Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0)];
-        let result = catmull_rom(&pts, 4);
-        let linear = linear_interpolate(&pts, 4);
-        assert_eq!(result.len(), linear.len());
-        for (a, b) in result.iter().zip(linear.iter()) {
-            assert!(approx_eq(*a, *b));
-        }
-    }
-
-    #[test]
-    fn catmull_rom_single_point() {
-        let pts = vec![Vec3::new(1.0, 2.0, 3.0)];
-        let result = catmull_rom(&pts, 8);
-        assert_eq!(result.len(), 1);
-        assert!(approx_eq(result[0], pts[0]));
-    }
-
-    #[test]
-    fn bspline_last_point_matches() {
-        let pts: Vec<Vec3> = (0..6)
-            .map(|i| Vec3::new(i as f32, (i as f32 * 0.5).sin(), 0.0))
-            .collect();
-        let result = cubic_bspline(&pts, 4);
-        assert!(approx_eq(*result.last().unwrap(), *pts.last().unwrap()));
-    }
-
-    #[test]
-    fn bspline_few_points_linear() {
-        let pts = vec![Vec3::ZERO, Vec3::X, Vec3::new(2.0, 0.0, 0.0)];
-        let result = cubic_bspline(&pts, 4);
-        let linear = linear_interpolate(&pts, 4);
-        assert_eq!(result.len(), linear.len());
-    }
-
-    #[test]
-    fn helix_axis_preserves_count() {
-        let pts: Vec<Vec3> = (0..10)
-            .map(|i| {
-                let t = i as f32 * 0.5;
-                Vec3::new(t.cos(), t.sin(), t * 1.5)
-            })
-            .collect();
-        let axis = compute_helix_axis_points(&pts);
-        assert_eq!(axis.len(), pts.len());
-    }
-
-    #[test]
     fn rmf_orthonormal() {
         // Build a curved path
         let n = 20;
@@ -676,17 +456,139 @@ mod tests {
             );
             assert!(
                 p.normal.dot(p.binormal).abs() < TOL,
-                "frame {i}: n·b != 0"
+                "frame {i}: n*b != 0"
             );
-            assert!(p.tangent.dot(p.normal).abs() < TOL, "frame {i}: t·n != 0");
+            assert!(p.tangent.dot(p.normal).abs() < TOL, "frame {i}: t*n != 0");
+        }
+    }
+
+    /// The typed `rmf_frames(&[SplineTrace], seed)` entry point must
+    /// produce frames byte-identical to the pre-refactor path of
+    /// "zeroed `SplinePoint` shells, `frames[0].normal = seed`,
+    /// `compute_rmf`". This pins the `SplineTrace` introduction as
+    /// behavior-preserving.
+    #[test]
+    fn rmf_frames_matches_legacy_shell_path() {
+        let n = 16;
+        let pos: Vec<Vec3> = (0..n)
+            .map(|i| {
+                let t = i as f32 * 0.27;
+                Vec3::new(t.cos() * 4.0, t.sin() * 3.0, t * 1.7)
+            })
+            .collect();
+        let mut tangents = vec![Vec3::ZERO; n];
+        for (i, t) in tangents.iter_mut().enumerate() {
+            let prev = if i == 0 { 0 } else { i - 1 };
+            let next = (i + 1).min(n - 1);
+            *t = (pos[next] - pos[prev]).normalize();
+        }
+        let seed = Vec3::new(0.3, 0.8, -0.5).normalize();
+
+        // Legacy path: zeroed shells, seed mutated into frame 0.
+        let mut legacy: Vec<SplinePoint> = pos
+            .iter()
+            .zip(tangents.iter())
+            .map(|(&p, &t)| SplinePoint {
+                pos: p,
+                tangent: t,
+                normal: Vec3::ZERO,
+                binormal: Vec3::ZERO,
+            })
+            .collect();
+        legacy[0].normal = seed;
+        compute_rmf(&mut legacy);
+
+        // Typed path through the new intermediate.
+        let traces: Vec<SplineTrace> = pos
+            .iter()
+            .zip(tangents.iter())
+            .map(|(&p, &t)| SplineTrace { pos: p, tangent: t })
+            .collect();
+        let typed = rmf_frames(&traces, Some(seed));
+
+        assert_eq!(typed.len(), legacy.len());
+        for (i, (a, b)) in typed.iter().zip(legacy.iter()).enumerate() {
+            assert!(approx_eq(a.pos, b.pos), "frame {i}: pos differs");
+            assert!(
+                approx_eq(a.tangent, b.tangent),
+                "frame {i}: tangent differs"
+            );
+            assert!(
+                approx_eq(a.normal, b.normal),
+                "frame {i}: normal differs ({:?} vs {:?})",
+                a.normal,
+                b.normal,
+            );
+            assert!(
+                approx_eq(a.binormal, b.binormal),
+                "frame {i}: binormal differs"
+            );
+            assert!(
+                (a.normal.length() - 1.0).abs() < TOL
+                    && a.normal.dot(a.tangent).abs() < TOL,
+                "frame {i}: not orthonormal"
+            );
         }
     }
 
     #[test]
-    fn frenet_and_rmf_empty() {
+    fn rmf_seed_is_rotation_equivariant() {
+        // The RMF chain roll must be fixed by chain geometry, not by a
+        // world axis. Feeding the same control points (and the same
+        // geometry-derived seed normal) in two world orientations must
+        // produce frames that differ only by that rotation.
+        let n = 12;
+        let base_pos: Vec<Vec3> = (0..n)
+            .map(|i| {
+                let t = i as f32 * 0.3;
+                Vec3::new(t.cos() * 5.0, t.sin() * 5.0, t * 2.0)
+            })
+            .collect();
+        let seed = Vec3::new(0.2, 0.9, 0.3).normalize();
+        let r = glam::Quat::from_axis_angle(
+            Vec3::new(1.0, 2.0, 3.0).normalize(),
+            0.7,
+        );
+
+        let build = |xf: &dyn Fn(Vec3) -> Vec3| -> Vec<SplinePoint> {
+            let mut pts: Vec<SplinePoint> = base_pos
+                .iter()
+                .map(|&p| SplinePoint {
+                    pos: xf(p),
+                    tangent: Vec3::ZERO,
+                    normal: Vec3::ZERO,
+                    binormal: Vec3::ZERO,
+                })
+                .collect();
+            for i in 0..n {
+                let prev = if i == 0 { 0 } else { i - 1 };
+                let next = (i + 1).min(n - 1);
+                pts[i].tangent = (pts[next].pos - pts[prev].pos).normalize();
+            }
+            // The seed is a chain-geometry quantity, so it rotates with
+            // the chain.
+            pts[0].normal = xf(seed) - xf(Vec3::ZERO);
+            compute_rmf(&mut pts);
+            pts
+        };
+
+        let id = build(&|p| p);
+        let rot = build(&|p| r * p);
+
+        for i in 0..n {
+            let mapped = r * id[i].normal;
+            assert!(
+                (mapped - rot[i].normal).length() < 1e-3,
+                "frame {i}: R*normal {mapped:?} != rotated normal {:?}",
+                rot[i].normal,
+            );
+        }
+    }
+
+    #[test]
+    fn rmf_empty_and_single() {
         // Empty input
         let mut empty: Vec<SplinePoint> = vec![];
-        compute_frenet_frames(&mut empty);
         compute_rmf(&mut empty);
 
         // Single point
@@ -696,8 +598,68 @@ mod tests {
             normal: Vec3::ZERO,
             binormal: Vec3::ZERO,
         }];
-        compute_frenet_frames(&mut single);
         compute_rmf(&mut single);
-        // Should not panic — that's the test
+        // Should not panic -- that's the test
+    }
+
+    /// T0-NA-A regression: the nucleic-acid ribbon path now goes through
+    /// `rmf_frames(&traces, seed)`, not raw Frenet. On a straight-then-
+    /// curved chain the old Frenet path recomputed an arbitrary world
+    /// axis per straight sample and flipped the `-curv` normal 180deg
+    /// through the inflection. RMF must instead stay orthonormal, keep a
+    /// fixed roll across the straight run, and never flip hemisphere
+    /// between adjacent samples through the bend.
+    #[test]
+    fn na_rmf_no_flip_on_straight_then_curved() {
+        // 8 straight samples along +Z, then a quarter circle in the
+        // Z-X plane -- a strong inflection at the join.
+        let mut pos: Vec<Vec3> =
+            (0..8).map(|i| Vec3::new(0.0, 0.0, i as f32)).collect();
+        let r = 5.0;
+        for k in 1..=12 {
+            let a = (k as f32 / 12.0) * std::f32::consts::FRAC_PI_2;
+            pos.push(Vec3::new(r * (1.0 - a.cos()), 0.0, 7.0 + r * a.sin()));
+        }
+        let n = pos.len();
+        let traces: Vec<SplineTrace> = (0..n)
+            .map(|i| {
+                let prev = if i == 0 { 0 } else { i - 1 };
+                let next = (i + 1).min(n - 1);
+                SplineTrace {
+                    pos: pos[i],
+                    tangent: (pos[next] - pos[prev]).normalize(),
+                }
+            })
+            .collect();
+
+        // Seed analogous to a first base-ring normal (perp-ish to t0).
+        let frames = rmf_frames(&traces, Some(Vec3::X));
+
+        for (i, f) in frames.iter().enumerate() {
+            assert!(
+                (f.normal.length() - 1.0).abs() < TOL
+                    && (f.binormal.length() - 1.0).abs() < TOL,
+                "frame {i}: not unit length"
+            );
+            assert!(
+                f.tangent.dot(f.normal).abs() < TOL,
+                "frame {i}: normal not perpendicular to tangent"
+            );
+        }
+        for i in 1..frames.len() {
+            assert!(
+                frames[i].normal.dot(frames[i - 1].normal) > 0.0,
+                "frame {}->{i}: 180deg ribbon flip (the old Frenet defect)",
+                i - 1,
+            );
+        }
+        // Across the straight run the tangent is constant, so a
+        // rotation-minimizing frame must not roll at all.
+        for i in 1..7 {
+            assert!(
+                frames[i].normal.dot(frames[0].normal) > 0.999,
+                "frame {i}: roll drift on the straight segment"
+            );
+        }
     }
 }

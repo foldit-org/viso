@@ -2,7 +2,7 @@ pub(crate) mod annotations;
 mod bootstrap;
 /// The engine's complete interactive vocabulary.
 pub(crate) mod command;
-mod constraint;
+pub(crate) mod constraint;
 mod culling;
 mod density;
 pub(crate) mod density_store;
@@ -662,6 +662,47 @@ impl VisoEngine {
                 residue,
                 atom_name: atom_name.to_owned(),
             },
+        )
+    }
+
+    /// Find the heavy-atom in `residue` whose current world position
+    /// projects closest to `screen_pos` (pixels, origin top-left).
+    /// Returns the PDB atom name, or `None` if the residue can't be
+    /// resolved or has no heavy atoms.
+    #[must_use]
+    pub fn closest_atom_in_residue(
+        &self,
+        residue: u32,
+        screen_pos: (f32, f32),
+    ) -> Option<String> {
+        constraint::closest_atom_in_residue(
+            &self.scene,
+            &self.annotations,
+            &self.camera_controller,
+            self.viewport_size(),
+            residue,
+            glam::Vec2::new(screen_pos.0, screen_pos.1),
+        )
+    }
+
+    /// Full breakdown of a cartoon-residue pick: owning entity id +
+    /// entity-local residue index + PDB atom name of the heavy atom
+    /// projecting closest to `screen_pos`. The host uses this to
+    /// classify the pick (backbone vs sidechain, protein vs other)
+    /// and build a pull-op dispatch in one pass.
+    #[must_use]
+    pub fn picked_residue_atom(
+        &self,
+        flat_residue: u32,
+        screen_pos: (f32, f32),
+    ) -> Option<constraint::PickedResidueAtom> {
+        constraint::picked_residue_atom(
+            &self.scene,
+            &self.annotations,
+            &self.camera_controller,
+            self.viewport_size(),
+            flat_residue,
+            glam::Vec2::new(screen_pos.0, screen_pos.1),
         )
     }
 

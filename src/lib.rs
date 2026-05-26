@@ -55,6 +55,7 @@ pub use engine::command::{
     AtomRef, BandInfo, BandTarget, BandType, CommandOutcome, PullInfo,
     VisoCommand,
 };
+pub use engine::constraint::PickedResidueAtom;
 pub use engine::focus::Focus;
 pub use engine::VisoEngine;
 pub use error::VisoError;

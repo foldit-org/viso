@@ -1,10 +1,8 @@
-use glam::Vec3;
-
 use super::prepared::{
     BackboneMeshData, BallAndStickInstances, CachedEntityMesh,
     NucleicAcidInstances, PreparedRebuild,
 };
-use crate::renderer::geometry::backbone::ChainRange;
+use crate::renderer::geometry::backbone::{ChainRange, SheetOffset};
 use crate::renderer::picking::PickMap;
 
 /// Offset the `residue_idx` field embedded in raw vertex bytes.
@@ -83,7 +81,7 @@ struct MeshAccumulator {
     backbone_tube_inds: Vec<u32>,
     backbone_ribbon_inds: Vec<u32>,
     backbone_vert_offset: u32,
-    sheet_offsets: Vec<(u32, Vec3)>,
+    sheet_offsets: Vec<SheetOffset>,
     chain_ranges: Vec<ChainRange>,
     // Sidechain instances
     sidechain_bytes: Vec<u8>,
@@ -147,23 +145,26 @@ impl MeshAccumulator {
             self.backbone_ribbon_inds
                 .push(idx + self.backbone_vert_offset);
         }
-        for &(res_idx, offset) in &mesh.backbone.sheet_offsets {
-            self.sheet_offsets
-                .push((res_idx + self.residue_offset, offset));
+        for so in &mesh.backbone.sheet_offsets {
+            self.sheet_offsets.push(SheetOffset {
+                residue_idx: so.residue_idx + self.residue_offset,
+                offset: so.offset,
+            });
         }
         let tube_idx_offset = self.backbone_tube_inds.len() as u32
             - mesh.backbone.tube_inds.len() as u32;
         let ribbon_idx_offset = self.backbone_ribbon_inds.len() as u32
             - mesh.backbone.ribbon_inds.len() as u32;
         for r in &mesh.backbone.chain_ranges {
-            self.chain_ranges.push(ChainRange {
-                tube_index_start: r.tube_index_start + tube_idx_offset,
-                tube_index_end: r.tube_index_end + tube_idx_offset,
-                ribbon_index_start: r.ribbon_index_start + ribbon_idx_offset,
-                ribbon_index_end: r.ribbon_index_end + ribbon_idx_offset,
-                bounding_center: r.bounding_center,
-                bounding_radius: r.bounding_radius,
-            });
+            let tube = r.tube();
+            let ribbon = r.ribbon();
+            self.chain_ranges.push(ChainRange::new(
+                tube.start + tube_idx_offset..tube.end + tube_idx_offset,
+                ribbon.start + ribbon_idx_offset
+                    ..ribbon.end + ribbon_idx_offset,
+                r.bounding_center,
+                r.bounding_radius,
+            ));
         }
         self.backbone_vert_offset += mesh.backbone.vert_count;
     }

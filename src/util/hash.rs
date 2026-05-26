@@ -1,7 +1,6 @@
 use std::hash::{Hash, Hasher};
 
 use glam::Vec3;
-use rustc_hash::FxHasher;
 
 /// Hash a single [`Vec3`] by converting each component to bits.
 pub(crate) fn hash_vec3(v: &Vec3, hasher: &mut impl Hasher) {
@@ -27,17 +26,4 @@ pub(crate) fn hash_vec3_slice_summary(
     if let Some(last) = slice.last() {
         hash_vec3(last, hasher);
     }
-}
-
-/// Hash multiple [`Vec3`] slices, returning a `u64` digest.
-///
-/// Convenience wrapper over [`hash_vec3_slice_summary`] for the common case
-/// where no additional data needs to be mixed into the hasher.
-pub(crate) fn hash_vec3_slices(slices: &[Vec<Vec3>]) -> u64 {
-    let mut hasher = FxHasher::default();
-    slices.len().hash(&mut hasher);
-    for slice in slices {
-        hash_vec3_slice_summary(slice, &mut hasher);
-    }
-    hasher.finish()
 }

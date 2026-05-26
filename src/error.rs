@@ -1,75 +1,36 @@
 //! Crate-level error types.
 
-use std::fmt;
-
 use crate::gpu::render_context::RenderContextError;
 
 /// Errors produced by the viso crate.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum VisoError {
     /// GPU context initialization failure.
-    Gpu(RenderContextError),
+    #[error("GPU error: {0}")]
+    Gpu(#[from] RenderContextError),
     /// Allocation or device-limit failure building a GPU resource (e.g. 3D
     /// LUT).
+    #[error("GPU resource error: {0}")]
     GpuResource(String),
     /// Failed to load a molecular structure file.
+    #[error("structure load error: {0}")]
     StructureLoad(String),
     /// Generic I/O failure.
-    Io(std::io::Error),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
     /// Failed to spawn a background thread.
-    ThreadSpawn(std::io::Error),
+    #[error("failed to spawn thread: {0}")]
+    ThreadSpawn(#[source] std::io::Error),
     /// TOML options parsing/serialization failure.
+    #[error("options parse error: {0}")]
     OptionsParse(String),
     /// Color LUT parse/validation failure (e.g. Adobe `.cube`).
+    #[error("color LUT error: {0}")]
     ColorLut(String),
     /// Viewer event-loop failure.
+    #[error("viewer error: {0}")]
     Viewer(String),
     /// Shader compilation or composition failure.
+    #[error("shader error: {0}")]
     Shader(String),
-}
-
-impl fmt::Display for VisoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Gpu(e) => write!(f, "GPU error: {e}"),
-            Self::GpuResource(msg) => write!(f, "GPU resource error: {msg}"),
-            Self::StructureLoad(msg) => {
-                write!(f, "structure load error: {msg}")
-            }
-            Self::Io(e) => write!(f, "I/O error: {e}"),
-            Self::ThreadSpawn(e) => {
-                write!(f, "failed to spawn thread: {e}")
-            }
-            Self::OptionsParse(msg) => {
-                write!(f, "options parse error: {msg}")
-            }
-            Self::ColorLut(msg) => {
-                write!(f, "color LUT error: {msg}")
-            }
-            Self::Viewer(msg) => write!(f, "viewer error: {msg}"),
-            Self::Shader(msg) => write!(f, "shader error: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for VisoError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Gpu(e) => Some(e),
-            Self::Io(e) | Self::ThreadSpawn(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<RenderContextError> for VisoError {
-    fn from(e: RenderContextError) -> Self {
-        Self::Gpu(e)
-    }
-}
-
-impl From<std::io::Error> for VisoError {
-    fn from(e: std::io::Error) -> Self {
-        Self::Io(e)
-    }
 }

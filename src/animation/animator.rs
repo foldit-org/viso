@@ -1,10 +1,9 @@
 //! Per-entity animator: interpolates `EntityPositions` between a
 //! per-entity start snapshot and a target reference.
 //!
-//! Unlike the pre-Phase-4 animator, this version is per-entity keyed on
-//! [`EntityId`] and writes directly into [`EntityPositions`]. There is
-//! no flat aggregation — the animator is a pure interpolation layer
-//! over the engine's per-entity position buffers.
+//! Keyed on [`EntityId`] and writes directly into [`EntityPositions`].
+//! There is no flat aggregation — the animator is a pure interpolation
+//! layer over the engine's per-entity position buffers.
 
 use glam::Vec3;
 use molex::entity::molecule::id::EntityId;

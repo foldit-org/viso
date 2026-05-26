@@ -1,12 +1,10 @@
 //! Per-frame frustum culling + LOD tier selection.
 //!
-//! Both decisions — which sidechain instances to upload, and which
-//! backbone LOD tier each chain should be remeshed at — happen every
+//! Both decisions -- which sidechain instances to upload, and which
+//! backbone LOD tier each chain should be remeshed at -- happen every
 //! frame against the current camera. They live here rather than in
 //! [`super::sync`] because they're not Assembly-sync logic; they're
 //! rendering decisions driven by camera position + animator state.
-
-use std::collections::HashMap;
 
 use glam::Vec3;
 
@@ -39,8 +37,7 @@ impl super::VisoEngine {
         let frustum = self.camera_controller.frustum();
 
         let flat = self.flat_sidechain_state();
-        let offset_map: HashMap<u32, Vec3> =
-            self.gpu.backbone_sheet_offsets().iter().copied().collect();
+        let sheet_offsets = self.gpu.backbone_sheet_offsets();
         let raw_view = crate::renderer::geometry::SidechainView {
             positions: &flat.positions,
             bonds: &flat.bonds,
@@ -51,7 +48,7 @@ impl super::VisoEngine {
         let adjusted =
             crate::renderer::geometry::sheet_adjust::sheet_adjusted_view(
                 &raw_view,
-                &offset_map,
+                sheet_offsets,
             );
         let sc_colors = if self.options.display.sidechain_color_mode()
             == crate::options::SidechainColorMode::Backbone

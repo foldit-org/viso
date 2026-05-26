@@ -24,7 +24,7 @@ pub(crate) struct CrossSectionProfile {
     /// Weight [0, 1] for blending in the peptide-plane "sheet" normal
     /// (1.0 for sheet residues, 0 elsewhere). Interpolated across SS
     /// boundaries by `interpolate_profiles`, giving a smooth ramp
-    /// through the sheet↔coil transition instead of a hard switch.
+    /// through the sheet<->coil transition instead of a hard switch.
     pub(crate) sheet_blend: f32,
     pub(crate) color: [f32; 3],
     pub(crate) residue_idx: u32,
@@ -130,11 +130,8 @@ pub(crate) fn interpolate_profiles(
     // interpolation through SS boundaries automatically.
     (0..total_spline)
         .map(|i| {
-            let frac = i as f32 / (total_spline - 1) as f32;
-            let rf = frac * (n_residues - 1) as f32;
-            let r0 = (rf.floor() as usize).min(n_residues - 1);
-            let r1 = (r0 + 1).min(n_residues - 1);
-            let t = rf - r0 as f32;
+            let (r0, r1, t) =
+                super::spline::residue_bracket(i, total_spline, n_residues);
 
             let mut result = profiles[r0].lerp(&profiles[r1], t);
             result.residue_idx = if t < 0.5 {
@@ -149,6 +146,39 @@ pub(crate) fn interpolate_profiles(
 
 // ==================== CROSS-SECTION EXTRUSION ====================
 
+/// Blended rectangular<->elliptical local cross-section coordinates for
+/// vertex `k` of a `cross_section_verts`-gon ring.
+///
+/// Shared by [`extrude_cross_section`] and [`cap_offset`] so the
+/// rect/ellipse blend lives in exactly one place.
+fn cross_section_xy(
+    profile: &CrossSectionProfile,
+    cross_section_verts: usize,
+    k: usize,
+) -> (f32, f32) {
+    let hw = profile.width * 0.5;
+    let ht = profile.thickness * 0.5;
+    let roundness = profile.roundness;
+    let angle = (k as f32 / cross_section_verts as f32) * std::f32::consts::TAU;
+    let cos_a = angle.cos();
+    let sin_a = angle.sin();
+
+    // Rectangular corner blended toward the ellipse by `roundness`.
+    // Explicit sign, not `signum`: `signum(0.0) == 0.0` would collapse
+    // the four axis-aligned corners to the spline center when
+    // `cross_section_verts % 4 == 0`, pinching the ribbon edge.
+    let sx = if cos_a >= 0.0 { 1.0 } else { -1.0 };
+    let sy = if sin_a >= 0.0 { 1.0 } else { -1.0 };
+    let rect_x = sx * hw;
+    let rect_y = sy * ht;
+    let circ_x = cos_a * hw;
+    let circ_y = sin_a * ht;
+    (
+        rect_x + (circ_x - rect_x) * roundness,
+        rect_y + (circ_y - rect_y) * roundness,
+    )
+}
+
 /// Extrude a cross-section ring at a single spline point.
 pub(crate) fn extrude_cross_section(
     frame: &SplinePoint,
@@ -158,7 +188,6 @@ pub(crate) fn extrude_cross_section(
 ) {
     let hw = profile.width * 0.5;
     let ht = profile.thickness * 0.5;
-    let roundness = profile.roundness;
     let color = profile.color;
     let residue_idx = profile.residue_idx;
     for k in 0..cross_section_verts {
@@ -167,17 +196,7 @@ pub(crate) fn extrude_cross_section(
         let cos_a = angle.cos();
         let sin_a = angle.sin();
 
-        // Rectangular corner position
-        let rect_x = cos_a.signum() * hw;
-        let rect_y = sin_a.signum() * ht;
-
-        // Elliptical position
-        let circ_x = cos_a * hw;
-        let circ_y = sin_a * ht;
-
-        // Blend between rectangular and elliptical
-        let x = rect_x + (circ_x - rect_x) * roundness;
-        let y = rect_y + (circ_y - rect_y) * roundness;
+        let (x, y) = cross_section_xy(profile, cross_section_verts, k);
 
         let offset = frame.binormal * x + frame.normal * y;
         let pos = frame.pos + offset;
@@ -210,21 +229,7 @@ pub(crate) fn cap_offset(
     cross_section_verts: usize,
     k: usize,
 ) -> Vec3 {
-    let hw = profile.width * 0.5;
-    let ht = profile.thickness * 0.5;
-    let roundness = profile.roundness;
-    let angle = (k as f32 / cross_section_verts as f32) * std::f32::consts::TAU;
-    let cos_a = angle.cos();
-    let sin_a = angle.sin();
-
-    let rect_x = cos_a.signum() * hw;
-    let rect_y = sin_a.signum() * ht;
-    let circ_x = cos_a * hw;
-    let circ_y = sin_a * ht;
-
-    let x = rect_x + (circ_x - rect_x) * roundness;
-    let y = rect_y + (circ_y - rect_y) * roundness;
-
+    let (x, y) = cross_section_xy(profile, cross_section_verts, k);
     frame.binormal * x + frame.normal * y
 }
 
@@ -311,7 +316,7 @@ mod tests {
         extrude_cross_section(&frame, &profile, csv, &mut verts);
 
         // At 45 degrees, elliptical gradient normal should differ from radial
-        let v = &verts[1]; // k=1, angle=π/4
+        let v = &verts[1]; // k=1, angle=pi/4
         let pos = Vec3::from(v.position);
         let nrm = Vec3::from(v.normal);
         let radial = pos.normalize();

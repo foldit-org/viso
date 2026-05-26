@@ -5,7 +5,7 @@
 //! view presets stored in `assets/view_presets/`.
 //!
 //! Key bindings live in [`crate::input::KeyBindings`] on the
-//! [`InputProcessor`](crate::input::InputProcessor), not here — they are an
+//! [`InputProcessor`](crate::input::InputProcessor), not here -- they are an
 //! input concern, not a rendering option.
 
 mod camera;
@@ -36,7 +36,7 @@ pub use display::{
 };
 pub use geometry::{
     lod_params, lod_scaled, select_chain_lod_tier, select_lod_tier,
-    CartoonStyle, GeometryOptions,
+    CartoonStyle, ChainLod, GeometryOptions,
 };
 pub use lighting::LightingOptions;
 pub use overrides::DisplayOverrides;

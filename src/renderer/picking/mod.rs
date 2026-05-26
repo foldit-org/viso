@@ -7,7 +7,6 @@ mod pick_map;
 mod pipeline;
 pub(crate) mod state;
 
-use glam::Vec3;
 use molex::SSType;
 pub(crate) use pick_map::PickMap;
 pub use pick_map::PickTarget;
@@ -17,6 +16,7 @@ use self::state::PickingState;
 use super::Renderers;
 use crate::gpu::residue_color::ResidueColorBuffer;
 use crate::gpu::{RenderContext, ShaderComposer};
+use crate::renderer::entity_topology::ProteinBackboneChain;
 
 /// GPU picking, selection, and per-residue color buffers grouped together.
 pub(crate) struct PickingSystem {
@@ -128,8 +128,9 @@ impl PickingSystem {
     }
 
     /// Select all residues in the same chain as `residue_idx`. Chains are
-    /// described by `backbone_chains` (each entry is a chain's backbone
-    /// points, with 3 points per residue).
+    /// described by `backbone_chains` (each entry is one chain's SoA
+    /// backbone atoms; its residue count is
+    /// [`ProteinBackboneChain::residue_count`]).
     ///
     /// If `extend` is true the new residues are added to the existing
     /// selection; otherwise the selection is replaced.
@@ -138,7 +139,7 @@ impl PickingSystem {
     pub(crate) fn select_chain(
         &mut self,
         residue_idx: i32,
-        backbone_chains: &[Vec<Vec3>],
+        backbone_chains: &[ProteinBackboneChain],
         extend: bool,
     ) -> bool {
         if residue_idx < 0 {
@@ -148,7 +149,7 @@ impl PickingSystem {
 
         let mut global_start = 0usize;
         let chain_range = backbone_chains.iter().find_map(|chain| {
-            let chain_residues = chain.len() / 3;
+            let chain_residues = chain.ca().len();
             let global_end = global_start + chain_residues;
             let result = (target >= global_start && target < global_end)
                 .then_some(global_start..global_end);

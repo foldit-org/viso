@@ -15,14 +15,15 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use glam::Vec3;
-use molex::{Element, MoleculeEntity, SSType};
+use molex::{Element, MoleculeEntity, MoleculeType, SSType};
 use rustc_hash::FxHashMap;
 
 use crate::options::DrawingMode;
 use crate::renderer::entity_topology::{
     EntityTopology, NucleotideRingLayout, SidechainLayout,
 };
-use crate::renderer::geometry::backbone::spline::project_backbone_atoms;
+use crate::renderer::geometry::backbone::curve::project_backbone_atoms;
+use crate::renderer::geometry::nucleic_acid::NA_DEFAULT_COLOR;
 
 // ---------------------------------------------------------------------------
 // EntityView
@@ -53,7 +54,7 @@ pub(crate) struct EntityView {
 }
 
 // ---------------------------------------------------------------------------
-// RibbonBackbone — per-sync cache for Cartoon-mode H-bond anchoring
+// RibbonBackbone -- per-sync cache for Cartoon-mode H-bond anchoring
 // ---------------------------------------------------------------------------
 
 /// Per-residue spline-projected backbone positions for Cartoon-mode
@@ -76,7 +77,7 @@ impl RibbonBackbone {
     /// Project per-residue N and C onto the rendered cartoon ribbon.
     ///
     /// Returns `None` for non-protein topologies and for inputs too
-    /// short to support a spline projection — callers fall back to raw
+    /// short to support a spline projection -- callers fall back to raw
     /// atom positions in that case.
     #[must_use]
     pub(crate) fn project(
@@ -86,7 +87,7 @@ impl RibbonBackbone {
         if !topology.is_protein() {
             return None;
         }
-        let chains = topology.backbone_chain_positions(positions);
+        let chains = topology.protein_backbone_chains(positions);
         if chains.is_empty() {
             return None;
         }
@@ -114,7 +115,7 @@ impl RibbonBackbone {
 }
 
 // ---------------------------------------------------------------------------
-// derive_topology — engine-side derivation factory
+// derive_topology -- engine-side derivation factory
 // ---------------------------------------------------------------------------
 
 /// Rederive the render-ready [`EntityTopology`] view of a single entity.
@@ -130,7 +131,7 @@ pub(crate) fn derive_topology(
     let molecule_type = entity.molecule_type();
     match entity {
         MoleculeEntity::Protein(protein) => {
-            let backbone_chain_layout = protein_backbone_chain_layout(protein);
+            let protein_backbone_layout = protein_backbone_indices(protein);
             let sidechain_layout = protein_sidechain_layout(protein);
             let (residue_names, residue_atom_ranges, atom_residue_index) =
                 residue_tables(
@@ -142,9 +143,12 @@ pub(crate) fn derive_topology(
                 );
             EntityTopology {
                 molecule_type,
-                backbone_chain_layout,
+                protein_backbone_layout,
+                na_backbone_chain_layout: Vec::new(),
                 sidechain_layout,
                 ring_topology: Vec::new(),
+                na_residue_base_colors: Vec::new(),
+                na_guide_atom_indices: Vec::new(),
                 ss_types: ss.to_vec(),
                 atom_elements: atom_elements(&protein.atoms),
                 atom_residue_index,
@@ -161,9 +165,12 @@ pub(crate) fn derive_topology(
                 );
             EntityTopology {
                 molecule_type,
-                backbone_chain_layout: na_backbone_chain_layout(na),
+                protein_backbone_layout: Vec::new(),
+                na_backbone_chain_layout: na_backbone_chain_layout(na),
                 sidechain_layout: SidechainLayout::empty(),
                 ring_topology: na_ring_topology(na),
+                na_residue_base_colors: na_residue_base_colors(na),
+                na_guide_atom_indices: na_guide_atom_indices(na, molecule_type),
                 ss_types: Vec::new(),
                 atom_elements: atom_elements(&na.atoms),
                 atom_residue_index,
@@ -174,9 +181,12 @@ pub(crate) fn derive_topology(
         }
         MoleculeEntity::SmallMolecule(sm) => EntityTopology {
             molecule_type,
-            backbone_chain_layout: Vec::new(),
+            protein_backbone_layout: Vec::new(),
+            na_backbone_chain_layout: Vec::new(),
             sidechain_layout: SidechainLayout::empty(),
             ring_topology: Vec::new(),
+            na_residue_base_colors: Vec::new(),
+            na_guide_atom_indices: Vec::new(),
             ss_types: Vec::new(),
             atom_elements: atom_elements(&sm.atoms),
             atom_residue_index: vec![0; sm.atoms.len()],
@@ -187,9 +197,12 @@ pub(crate) fn derive_topology(
         },
         MoleculeEntity::Bulk(bulk) => EntityTopology {
             molecule_type,
-            backbone_chain_layout: Vec::new(),
+            protein_backbone_layout: Vec::new(),
+            na_backbone_chain_layout: Vec::new(),
             sidechain_layout: SidechainLayout::empty(),
             ring_topology: Vec::new(),
+            na_residue_base_colors: Vec::new(),
+            na_guide_atom_indices: Vec::new(),
             ss_types: Vec::new(),
             atom_elements: atom_elements(&bulk.atoms),
             atom_residue_index: Vec::new(),
@@ -201,7 +214,7 @@ pub(crate) fn derive_topology(
 }
 
 // ---------------------------------------------------------------------------
-// Builder helpers — private derivation used only by derive_topology
+// Builder helpers -- private derivation used only by derive_topology
 // ---------------------------------------------------------------------------
 
 fn atom_elements(atoms: &[molex::Atom]) -> Vec<Element> {
@@ -237,22 +250,33 @@ where
     (names, ranges, atom_residue_index)
 }
 
-/// Interleaved `[N, CA, C]` atom indices per continuous backbone segment.
-fn protein_backbone_chain_layout(
+/// Build per-segment SoA backbone-atom indices for a protein entity.
+/// `ProteinEntity::new` enforces canonical atom ordering -- N, CA, C, O
+/// as the first four atoms of every kept residue -- so each role's
+/// index is a fixed offset from the residue's `atom_range.start`.
+fn protein_backbone_indices(
     protein: &molex::entity::molecule::protein::ProteinEntity,
-) -> Vec<Vec<usize>> {
+) -> Vec<crate::renderer::entity_topology::ProteinBackboneIndices> {
     use molex::entity::molecule::traits::Polymer;
+
+    use crate::renderer::entity_topology::ProteinBackboneIndices;
     let n_segments = protein.segment_count();
     (0..n_segments)
         .map(|seg_idx| {
             let range = protein.segment_range(seg_idx);
-            let mut indices = Vec::with_capacity(range.len() * 3);
+            let len = range.len();
+            let mut indices = ProteinBackboneIndices {
+                n: Vec::with_capacity(len),
+                ca: Vec::with_capacity(len),
+                c: Vec::with_capacity(len),
+                o: Vec::with_capacity(len),
+            };
             for residue in &protein.residues[range] {
-                // ProteinEntity::new enforces canonical order: N, CA, C, O
-                // as the first four atoms of each kept residue.
-                indices.push(residue.atom_range.start);
-                indices.push(residue.atom_range.start + 1);
-                indices.push(residue.atom_range.start + 2);
+                let base = residue.atom_range.start;
+                indices.n.push(base);
+                indices.ca.push(base + 1);
+                indices.c.push(base + 2);
+                indices.o.push(base + 3);
             }
             indices
         })
@@ -264,7 +288,7 @@ fn protein_backbone_chain_layout(
 /// Walks every kept residue's sidechain heavy atoms (canonical positions
 /// `[4..]`, excluding hydrogens). Collects entity-local atom indices,
 /// residue indices, names, and hydrophobicity; rebuilds intra-sidechain
-/// and backbone→sidechain bond pairs from the entity's bond list.
+/// and backbone->sidechain bond pairs from the entity's bond list.
 fn protein_sidechain_layout(
     protein: &molex::entity::molecule::protein::ProteinEntity,
 ) -> SidechainLayout {
@@ -273,10 +297,10 @@ fn protein_sidechain_layout(
     let mut atom_indices: Vec<u32> = Vec::new();
     let mut residue_indices: Vec<u32> = Vec::new();
     let mut hydrophobicity: Vec<bool> = Vec::new();
-    // Map entity-local atom index → layout index, so we can resolve
+    // Map entity-local atom index -> layout index, so we can resolve
     // bond endpoints back to positions within this layout.
     let mut atom_to_layout: FxHashMap<u32, u32> = FxHashMap::default();
-    // (residue_idx, atom_name) → entity-local atom index. Populated
+    // (residue_idx, atom_name) -> entity-local atom index. Populated
     // inline with the layout walk so constraint resolution can do
     // O(1) atom-name lookups.
     let mut atom_lookup: FxHashMap<u32, FxHashMap<Box<str>, u32>> =
@@ -427,12 +451,86 @@ fn trim_atom_name(raw: &[u8; 4]) -> &[u8] {
     &raw[..end]
 }
 
+/// Per-residue chain (segment) index for an NA entity, parallel to
+/// `na.residues`, using the exact same `segment_breaks` walk as
+/// [`na_backbone_chain_layout`] so a ring's `chain_idx` matches the
+/// chain index `process_na_chains` iterates.
+fn na_residue_chain_indices(
+    na: &molex::entity::molecule::nucleic_acid::NAEntity,
+) -> Vec<u32> {
+    let mut out = Vec::with_capacity(na.residues.len());
+    let mut chain_idx: u32 = 0;
+    let mut current_len: usize = 0;
+    for res_idx in 0..na.residues.len() {
+        if na.segment_breaks.contains(&res_idx) && current_len > 0 {
+            chain_idx += 1;
+            current_len = 0;
+        }
+        out.push(chain_idx);
+        current_len += 1;
+    }
+    out
+}
+
+/// Residue-parallel base color for every NA residue (NDB color, or the
+/// default sentinel for unrecognized/modified bases). Built per residue
+/// rather than per resolvable ring so it stays aligned with the P-atom
+/// stream `process_na_chains` indexes -- a `na_ring_topology`-derived
+/// color slice silently shifts at any base it skips (T1-NA-C).
+fn na_residue_base_colors(
+    na: &molex::entity::molecule::nucleic_acid::NAEntity,
+) -> Vec<[f32; 3]> {
+    na.residues
+        .iter()
+        .map(|r| ndb_base_color(r.name).unwrap_or(NA_DEFAULT_COLOR))
+        .collect()
+}
+
+/// Per-residue `(from_atom_index, to_atom_index)` for an NA entity's
+/// ribbon direction vector, residue-parallel with `na.residues` (the
+/// order `process_na_chains` walks).
+///
+/// This mirrors Mol*'s `setFromToVector`: the per-residue direction is
+/// `pos(to) - pos(from)`, with the atom pair chosen by polymer type --
+/// **DNA: `C3' -> C1'`**, **RNA: `C4' -> C3'`** (Mol*
+/// `PolymerTypeAtomRoleId`, `directionFrom`/`directionTo`). Either slot
+/// `None` means the atom is missing for that residue; the ribbon
+/// solver keeps its RMF normal there.
+fn na_guide_atom_indices(
+    na: &molex::entity::molecule::nucleic_acid::NAEntity,
+    mol_type: MoleculeType,
+) -> Vec<(Option<u32>, Option<u32>)> {
+    // (from_names, to_names), trying both `'` and `*` PDB conventions.
+    let (from_names, to_names): (&[&[u8]], &[&[u8]]) =
+        if mol_type == MoleculeType::RNA {
+            (&[b"C4'", b"C4*"], &[b"C3'", b"C3*"])
+        } else {
+            (&[b"C3'", b"C3*"], &[b"C1'", b"C1*"])
+        };
+    let find = |range: Range<usize>, names: &[&[u8]]| -> Option<u32> {
+        range
+            .filter(|&idx| names.contains(&trim_atom_name(&na.atoms[idx].name)))
+            .map(|idx| idx as u32)
+            .next()
+    };
+    na.residues
+        .iter()
+        .map(|r| {
+            (
+                find(r.atom_range.clone(), from_names),
+                find(r.atom_range.clone(), to_names),
+            )
+        })
+        .collect()
+}
+
 /// Per-residue ring atom indices for an NA entity.
 fn na_ring_topology(
     na: &molex::entity::molecule::nucleic_acid::NAEntity,
 ) -> Vec<NucleotideRingLayout> {
+    let chain_indices = na_residue_chain_indices(na);
     let mut rings = Vec::new();
-    for residue in &na.residues {
+    for (res_idx, residue) in na.residues.iter().enumerate() {
         let Some(color) = ndb_base_color(residue.name) else {
             continue;
         };
@@ -480,6 +578,8 @@ fn na_ring_topology(
             hex_ring,
             pent_ring,
             c1_prime,
+            p_index: residue.atom_range.start as u32,
+            chain_idx: chain_indices.get(res_idx).copied().unwrap_or(0),
             color,
         });
     }

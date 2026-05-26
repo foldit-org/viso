@@ -21,7 +21,7 @@ pub enum CartoonStyle {
     Tube,
     /// Cylindrical helices, flat sheets with arrows, round coils.
     Cylindrical,
-    /// Custom — user controls all per-SS parameters directly.
+    /// Custom -- user controls all per-SS parameters directly.
     Custom,
 }
 
@@ -109,14 +109,14 @@ impl GeometryOptions {
         if tier == 0 {
             return self.clone();
         }
-        let (spr, csv) = lod_scaled(
+        let lod = lod_scaled(
             self.segments_per_residue,
             self.cross_section_verts,
             tier,
         );
         Self {
-            segments_per_residue: spr,
-            cross_section_verts: csv,
+            segments_per_residue: lod.segments_per_residue,
+            cross_section_verts: lod.cross_section_verts,
             ..self.clone()
         }
     }
@@ -125,9 +125,9 @@ impl GeometryOptions {
     /// max buffer size. Returns `self` unchanged for small structures.
     ///
     /// The backbone vertex buffer scales as
-    /// `SPR × CSV × residues × 52 bytes/vertex` (with a 1.15× overhead
+    /// `SPR x CSV x residues x 52 bytes/vertex` (with a 1.15x overhead
     /// factor). For 5 000 residues at default settings (SPR = 8, CSV = 16)
-    /// this is ~33 MB — well within the 256 MB limit. When the estimate
+    /// this is ~33 MB -- well within the 256 MB limit. When the estimate
     /// exceeds the limit this method progressively applies LOD tiers
     /// (halving SPR each step) until the buffer fits.
     ///
@@ -156,12 +156,14 @@ impl GeometryOptions {
 
         // Progressively reduce until it fits
         for tier in 1..=3u8 {
-            let (spr, csv) = lod_scaled(
+            let lod = lod_scaled(
                 self.segments_per_residue,
                 self.cross_section_verts,
                 tier,
             );
-            if est(spr, csv) <= MAX_BUFFER_BYTES {
+            if est(lod.segments_per_residue, lod.cross_section_verts)
+                <= MAX_BUFFER_BYTES
+            {
                 return self.with_lod_tier(tier);
             }
         }
@@ -169,9 +171,22 @@ impl GeometryOptions {
     }
 }
 
+/// Per-chain backbone tessellation detail: segments along the spline per
+/// residue and vertices around each cross-section ring.
+///
+/// Replaces the bare `(usize, usize)` LOD tuple -- the field order was
+/// swap-bait across the six signatures that threaded it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChainLod {
+    /// Spline samples generated per residue (curve smoothness).
+    pub segments_per_residue: usize,
+    /// Vertices around each cross-section ring (tube/ribbon resolution).
+    pub cross_section_verts: usize,
+}
+
 /// Scale user detail settings down for an LOD tier.
 ///
-/// Only `spr` (segments per residue) is reduced — `csv` (cross-section
+/// Only `spr` (segments per residue) is reduced -- `csv` (cross-section
 /// vertices) is kept at the user's setting. Reducing csv changes the
 /// cross-section shape and normals, making flat ribbons look rounded and
 /// incorrectly lit. Reducing spr only makes curves slightly less smooth,
@@ -182,19 +197,22 @@ impl GeometryOptions {
 /// - Tier 2: spr 25%
 /// - Tier 3: spr 12.5%
 #[must_use]
-pub fn lod_scaled(max_spr: usize, max_csv: usize, tier: u8) -> (usize, usize) {
-    let spr = match tier {
+pub fn lod_scaled(max_spr: usize, max_csv: usize, tier: u8) -> ChainLod {
+    let segments_per_residue = match tier {
         0 => max_spr,
         1 => (max_spr / 2).max(4),
         2 => (max_spr / 4).max(4),
         _ => (max_spr / 8).max(4),
     };
-    (spr, max_csv)
+    ChainLod {
+        segments_per_residue,
+        cross_section_verts: max_csv,
+    }
 }
 
 /// Convenience: LOD tier params from defaults (for backward compat).
 #[must_use]
-pub fn lod_params(tier: u8) -> (usize, usize) {
+pub fn lod_params(tier: u8) -> ChainLod {
     let defaults = GeometryOptions::default();
     lod_scaled(
         defaults.segments_per_residue,
@@ -205,13 +223,13 @@ pub fn lod_params(tier: u8) -> (usize, usize) {
 
 /// Select LOD tier based on absolute camera distance in angstroms.
 ///
-/// Uses absolute distance thresholds — screen-space occupancy is what
+/// Uses absolute distance thresholds -- screen-space occupancy is what
 /// matters, not relative bounding-radius ratios.
 ///
-/// - Close (< 150 A):    tier 0 — 32 spr (full detail)
-/// - Medium (150–250 A): tier 1 — 16 spr (half detail)
-/// - Far (250–400 A):    tier 2 — 8 spr (quarter detail)
-/// - Very far (> 400 A): tier 3 — 4 spr (minimum detail)
+/// - Close (< 150 A):    tier 0 -- 32 spr (full detail)
+/// - Medium (150-250 A): tier 1 -- 16 spr (half detail)
+/// - Far (250-400 A):    tier 2 -- 8 spr (quarter detail)
+/// - Very far (> 400 A): tier 3 -- 4 spr (minimum detail)
 #[must_use]
 pub fn select_lod_tier(camera_distance: f32, _bounding_radius: f32) -> u8 {
     if camera_distance < 150.0 {

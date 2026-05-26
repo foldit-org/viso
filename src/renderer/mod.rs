@@ -5,7 +5,7 @@
 
 /// Bind groups shared across all molecular draw calls.
 pub(crate) mod draw_context;
-/// Render-ready per-entity contract — [`EntityTopology`] plus the
+/// Render-ready per-entity contract -- [`EntityTopology`] plus the
 /// [`SidechainLayout`] / [`NucleotideRingLayout`] consumed across the
 /// renderer.
 ///
@@ -24,7 +24,7 @@ pub(crate) mod impostor;
 pub(crate) mod mesh;
 /// GPU-based object picking and selection management.
 pub(crate) mod picking;
-/// Background mesh generation pipeline (scene → GPU-ready buffers).
+/// Background mesh generation pipeline (scene -> GPU-ready buffers).
 pub(crate) mod pipeline;
 pub(crate) mod pipeline_util;
 /// Post-processing effects (SSAO, bloom, FXAA).
@@ -34,8 +34,7 @@ use self::draw_context::DrawBindGroups;
 use self::geometry::isosurface::IsosurfaceRenderer;
 use self::geometry::{
     BackboneRenderer, BallAndStickRenderer, BandRenderer, BondRenderer,
-    ChainPair, NucleicAcidRenderer, PullRenderer, SidechainRenderer,
-    SidechainView,
+    NucleicAcidRenderer, PullRenderer, SidechainRenderer, SidechainView,
 };
 use crate::camera::frustum::Frustum;
 use crate::gpu::{RenderContext, ShaderComposer};
@@ -94,15 +93,8 @@ impl Renderers {
         shader_composer: &mut ShaderComposer,
         backface_depth_view: &wgpu::TextureView,
     ) -> Result<Self, crate::error::VisoError> {
-        let backbone = BackboneRenderer::new(
-            context,
-            layouts,
-            &ChainPair {
-                protein: &[],
-                na: &[],
-            },
-            shader_composer,
-        )?;
+        let backbone =
+            BackboneRenderer::new(context, layouts, &[], &[], shader_composer)?;
         let sidechain = SidechainRenderer::new(
             context,
             layouts,
@@ -120,13 +112,8 @@ impl Renderers {
         let pull = PullRenderer::new(context, layouts, shader_composer)?;
         let ball_and_stick =
             BallAndStickRenderer::new(context, layouts, shader_composer)?;
-        let nucleic_acid = NucleicAcidRenderer::new(
-            context,
-            layouts,
-            &[],
-            &[],
-            shader_composer,
-        )?;
+        let nucleic_acid =
+            NucleicAcidRenderer::new(context, layouts, shader_composer)?;
         let isosurface = IsosurfaceRenderer::new(
             context,
             layouts,

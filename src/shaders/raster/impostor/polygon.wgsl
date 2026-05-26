@@ -25,9 +25,9 @@ fn is_selected(residue_idx: u32) -> bool {
 struct PolygonInstance {
     v0: vec4<f32>,  // xyz=position, w=vertex_count
     v1: vec4<f32>,  // xyz=position, w=half_thickness
-    v2: vec4<f32>,
-    v3: vec4<f32>,
-    v4: vec4<f32>,
+    v2: vec4<f32>,  // xyz=position, w=centroid.x
+    v3: vec4<f32>,  // xyz=position, w=centroid.y
+    v4: vec4<f32>,  // xyz=position, w=centroid.z
     v5: vec4<f32>,
     normal: vec4<f32>,  // xyz=face normal, w=residue_idx
     color: vec4<f32>,
@@ -79,12 +79,10 @@ fn vs_main(
     let residue_idx = u32(inst.normal.w);
     let offset = face_n * half_t;
 
-    // Compute centroid
-    var centroid = vec3<f32>(0.0);
-    for (var i = 0u; i < n; i++) {
-        centroid += get_vertex(inst, i);
-    }
-    centroid /= f32(n);
+    // Centroid is precomputed CPU-side and packed into the v2/v3/v4 .w
+    // slots, so it is read once here instead of re-summing all n verts
+    // for each of the 72 verts in this instance.
+    let centroid = vec3<f32>(inst.v2.w, inst.v3.w, inst.v4.w);
 
     var pos: vec3<f32>;
     var normal: vec3<f32>;

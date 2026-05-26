@@ -24,7 +24,7 @@ pub(crate) mod sheet_adjust;
 /// Capsule sidechain renderer.
 pub(crate) mod sidechain;
 
-pub(crate) use backbone::{BackboneRenderer, ChainPair, PreparedBackboneData};
+pub(crate) use backbone::BackboneRenderer;
 pub(crate) use ball_and_stick::{
     BallAndStickRenderer, PreparedBallAndStickData,
 };

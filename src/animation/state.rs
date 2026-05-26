@@ -54,6 +54,15 @@ impl AnimationState {
         self.pending_transitions = transitions;
     }
 
+    /// Merge `transitions` into the pending map, incoming entries
+    /// winning on key collision.
+    pub(crate) fn merge_pending_transitions(
+        &mut self,
+        transitions: HashMap<u32, Transition>,
+    ) {
+        self.pending_transitions.extend(transitions);
+    }
+
     /// Drop all pending transitions.
     pub(crate) fn clear_pending_transitions(&mut self) {
         self.pending_transitions.clear();

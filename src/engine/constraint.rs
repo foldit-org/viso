@@ -165,6 +165,116 @@ pub(super) fn resolve_atom_ref_pub(
     ConstraintContext::new(scene, annotations).resolve_atom_ref(atom)
 }
 
+/// Full breakdown of which atom a screen-space pick resolves to inside
+/// a cartoon-mode residue.
+///
+/// Used by drag dispatchers that need the owning entity id and the
+/// entity-local residue index in addition to the atom name (e.g.
+/// classifying backbone vs sidechain for the pull op router).
+pub struct PickedResidueAtom {
+    /// Owning entity (molex `EntityId.raw()`).
+    pub entity_id: u32,
+    /// Entity-local residue index (0-based).
+    pub local_residue: u32,
+    /// PDB atom name of the atom that projects closest to `screen_pos`.
+    pub atom_name: String,
+}
+
+/// Same as [`closest_atom_in_residue`] but also returns the owning
+/// entity id and the entity-local residue index. Lets the host
+/// classify the pick (backbone vs sidechain, protein vs non-protein)
+/// and build the param map for op dispatch in one pass.
+pub(super) fn picked_residue_atom(
+    scene: &Scene,
+    annotations: &EntityAnnotations,
+    camera: &CameraController,
+    viewport: UVec2,
+    residue: u32,
+    screen_pos: Vec2,
+) -> Option<PickedResidueAtom> {
+    let ctx = ConstraintContext::new(scene, annotations);
+    let range = ctx
+        .cartoon_ranges
+        .iter()
+        .find(|r| residue >= r.start && residue < r.end)?;
+    let entity_id = range.entity.raw();
+    let local_residue = residue - range.start;
+    let atom_name = closest_atom_in_residue(
+        scene,
+        annotations,
+        camera,
+        viewport,
+        residue,
+        screen_pos,
+    )?;
+    Some(PickedResidueAtom {
+        entity_id,
+        local_residue,
+        atom_name,
+    })
+}
+
+/// Find the heavy-atom in `residue` whose world position projects
+/// closest to `screen_pos` (in pixels). Used by the host to anchor
+/// pull/drag actions to the atom under the cursor instead of always
+/// defaulting to CA.
+pub(super) fn closest_atom_in_residue(
+    scene: &Scene,
+    annotations: &EntityAnnotations,
+    camera: &CameraController,
+    viewport: UVec2,
+    residue: u32,
+    screen_pos: Vec2,
+) -> Option<String> {
+    let ctx = ConstraintContext::new(scene, annotations);
+    let range = ctx
+        .cartoon_ranges
+        .iter()
+        .find(|r| residue >= r.start && residue < r.end)?;
+    let state = scene.entity_state.get(&range.entity)?;
+    let positions = scene.positions.get(range.entity)?;
+    let local_residue = residue - range.start;
+
+    let mut best: Option<(f32, String)> = None;
+    let mut consider = |name: &str, pos: Vec3| {
+        if let Some(screen) = camera.world_to_screen(pos, viewport) {
+            let dx = screen.x - screen_pos.x;
+            let dy = screen.y - screen_pos.y;
+            let d2 = dx * dx + dy * dy;
+            if best.as_ref().is_none_or(|(b, _)| d2 < *b) {
+                best = Some((d2, name.to_owned()));
+            }
+        }
+    };
+
+    if let Some(bb_range) = state
+        .topology
+        .residue_atom_ranges
+        .get(local_residue as usize)
+    {
+        for (offset, name) in [(0_usize, "N"), (1, "CA"), (2, "C")] {
+            if let Some(pos) = positions.get(bb_range.start as usize + offset) {
+                consider(name, *pos);
+            }
+        }
+    }
+
+    if let Some(atom_map) = state
+        .topology
+        .sidechain_layout
+        .atom_lookup
+        .get(&local_residue)
+    {
+        for (name, &atom_idx) in atom_map {
+            if let Some(pos) = positions.get(atom_idx as usize) {
+                consider(name.as_ref(), *pos);
+            }
+        }
+    }
+
+    best.map(|(_, name)| name)
+}
+
 fn resolve_atom_in_entity(
     state: &EntityView,
     positions: &[Vec3],
