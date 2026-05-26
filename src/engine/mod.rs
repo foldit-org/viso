@@ -219,55 +219,47 @@ impl VisoEngine {
         }
     }
 
-    /// Upload or clear an Adobe ASCII `.cube` 3D LUT on the GPU
-    /// (`Rgba16Float`).
+    /// Load or clear the active color LUT from an Adobe ASCII `.cube` file
+    /// path.
     ///
-    /// When `Some`, the composite pass binds the volume and applies LUT grading.
-    /// When `None`, grading is disabled.
+    /// `None` clears the current LUT.
     ///
     /// # Errors
     ///
-    /// Returns [`VisoError::GpuResource`] if `lut.size` exceeds
-    /// [`wgpu::Limits::max_texture_dimension_3d`].
-    pub fn set_adobe_cube_lut(
+    /// Returns [`VisoError::Io`] if the file cannot be read, parse errors when
+    /// the `.cube` contents are invalid, or [`VisoError::GpuResource`] if the
+    /// LUT exceeds device 3D texture limits.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_color_lut_from_cube_path(
         &mut self,
-        lut: Option<crate::util::lut_adobe_cube::LutRgbCube3d>,
+        path: Option<&std::path::Path>,
     ) -> Result<(), VisoError> {
+        let Some(path) = path else {
+            return self.set_color_lut_from_cube_bytes(None);
+        };
+        let bytes = std::fs::read(path).map_err(VisoError::Io)?;
+        self.set_color_lut_from_cube_bytes(Some(&bytes))
+    }
+
+    /// Load or clear the active color LUT from Adobe ASCII `.cube` UTF-8 bytes.
+    ///
+    /// `None` clears the current LUT.
+    ///
+    /// This is the intended entrypoint for web/wasm hosts that receive file
+    /// contents via a browser file dialog.
+    ///
+    /// # Errors
+    ///
+    /// Returns parse errors when the `.cube` contents are invalid, or
+    /// [`VisoError::GpuResource`] if the LUT exceeds device 3D texture limits.
+    pub fn set_color_lut_from_cube_bytes(
+        &mut self,
+        bytes: Option<&[u8]>,
+    ) -> Result<(), VisoError> {
+        let lut = bytes
+            .map(crate::util::lut_adobe_cube::parse_adobe_cube_bytes)
+            .transpose()?;
         self.gpu.set_adobe_cube_lut(lut)
-    }
-
-    /// Parse Adobe `.cube` UTF-8 text and upload it as the active composite LUT.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`VisoError::OptionsParse`] on parse failure, or
-    /// [`VisoError::GpuResource`] if the LUT exceeds device 3D texture limits.
-    pub fn set_adobe_cube_lut_from_str(&mut self, cube: &str) -> Result<(), VisoError> {
-        let lut = crate::util::lut_adobe_cube::parse_adobe_cube_str(cube)?;
-        self.set_adobe_cube_lut(Some(lut))
-    }
-
-    /// Parse Adobe `.cube` bytes (UTF-8) and upload it as the active composite LUT.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`VisoError::OptionsParse`] on parse failure, or
-    /// [`VisoError::GpuResource`] if the LUT exceeds device 3D texture limits.
-    pub fn set_adobe_cube_lut_from_bytes(
-        &mut self,
-        bytes: &[u8],
-    ) -> Result<(), VisoError> {
-        let lut = crate::util::lut_adobe_cube::parse_adobe_cube_bytes(bytes)?;
-        self.set_adobe_cube_lut(Some(lut))
-    }
-
-    /// Clear the active Adobe LUT and disable composite grading.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`VisoError::GpuResource`] if rebinding the composite pass fails.
-    pub fn clear_adobe_cube_lut(&mut self) -> Result<(), VisoError> {
-        self.set_adobe_cube_lut(None)
     }
 }
 

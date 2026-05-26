@@ -149,10 +149,12 @@ impl VisoEngine {
     ///
     /// Returns [`crate::VisoError::Io`] or parse/GPU errors when a path is set
     /// on native targets. On wasm, paths are ignored (use
-    /// [`VisoEngine::set_adobe_cube_lut_from_bytes`] instead).
+    /// [`VisoEngine::set_color_lut_from_cube_bytes`] instead).
     pub(super) fn apply_adobe_cube_lut_from_options(
         &mut self,
     ) -> Result<(), crate::VisoError> {
+        use std::path::Path;
+
         let path = self
             .options
             .post_processing
@@ -164,15 +166,15 @@ impl VisoEngine {
             // `None` = no path configured; keep a LUT loaded via Browse / API.
             return Ok(());
         };
+        let path = path.to_owned();
 
         if path.is_empty() {
-            return self.clear_adobe_cube_lut();
+            return self.set_color_lut_from_cube_bytes(None);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let bytes = std::fs::read(path).map_err(crate::VisoError::Io)?;
-            self.set_adobe_cube_lut_from_bytes(&bytes)
+            self.set_color_lut_from_cube_path(Some(Path::new(&path)))
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -180,7 +182,7 @@ impl VisoEngine {
             let _ = path;
             log::warn!(
                 "post_processing.adobe_cube_lut_path is ignored on wasm; \
-                 use set_adobe_cube_lut_from_bytes"
+                 use set_color_lut_from_cube_bytes"
             );
             Ok(())
         }

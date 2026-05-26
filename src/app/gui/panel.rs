@@ -424,12 +424,8 @@ fn parse_and_load(
         let _ = engine.density_mut().load(map);
         Ok(())
     } else if ext.eq_ignore_ascii_case("cube") {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read LUT file: {e}"))?;
-        engine.options.post_processing.adobe_cube_lut_path =
-            Some(path.to_owned());
         engine
-            .set_adobe_cube_lut_from_str(&text)
+            .set_color_lut_from_cube_path(Some(std::path::Path::new(path)))
             .map_err(|e| format!("LUT error: {e}"))?;
         log::info!(
             "Adobe cube LUT loaded (grid size from file; path recorded in \

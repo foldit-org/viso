@@ -10,7 +10,7 @@
 //! - [`VisoOptions`](options::VisoOptions) — runtime configuration (display,
 //!   lighting, camera, colors)
 //! - [`VisoError`] — error type
-//! - Color LUT — load an Adobe `.cube` via [`VisoEngine::set_adobe_cube_lut_from_str`]
+//! - Color LUT — load an Adobe `.cube` via [`VisoEngine::set_color_lut_from_cube_path`]
 //! - [`InputProcessor`] — optional convenience for translating raw input events
 //!   into [`VisoCommand`]s
 //!

@@ -10,12 +10,12 @@ use super::LutCubeParseError;
 /// `LUT_3D_SIZE N`).
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub struct LutRgbCube3d {
+pub(crate) struct LutRgbCube3d {
     /// Grid dimension `N` (`LUT_3D_SIZE N`).
-    pub size: u32,
+    pub(crate) size: u32,
     /// Flattened RGB triplets in file order; length must equal `size³` for a
     /// valid LUT.
-    pub rgb: Vec<[f32; 3]>,
+    pub(crate) rgb: Vec<[f32; 3]>,
 }
 
 /// Maps Adobe `.cube` sample index `k` to 3D lattice coordinates `(x, y, z)`
@@ -60,7 +60,7 @@ impl LutRgbCube3d {
     /// Returns [`LutCubeParseError`] when `size` is outside `2..=MAX_SIZE`,
     /// when `size³` does not fit in [`usize`], or when the RGB sample count
     /// is wrong.
-    pub fn new(
+    pub(crate) fn new(
         size: u32,
         rgb: Vec<[f32; 3]>,
     ) -> Result<Self, LutCubeParseError> {
