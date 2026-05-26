@@ -9,6 +9,7 @@ use super::LutCubeParseError;
 /// In-memory RGB samples for a 3D LUT with edge length [`Self::size`] (`N` in
 /// `LUT_3D_SIZE N`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct LutRgbCube3d {
     /// Grid dimension `N` (`LUT_3D_SIZE N`).
     pub size: u32,

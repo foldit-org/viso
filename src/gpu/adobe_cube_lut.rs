@@ -17,7 +17,7 @@
 
 use crate::error::VisoError;
 use crate::gpu::RenderContext;
-use crate::util::lut_adobe_cube::LutRgbCube3d;
+use crate::util::lut_adobe_cube::{expected_lut_sample_count, LutRgbCube3d};
 
 /// GPU resources for one Adobe `.cube` 3D LUT (`N×N×N` RGBA16F).
 pub(crate) struct AdobeCubeLutTexture {
@@ -41,6 +41,22 @@ impl AdobeCubeLutTexture {
         lut: &LutRgbCube3d,
     ) -> Result<Self, VisoError> {
         let n = lut.size;
+        if n < 2 {
+            return Err(VisoError::GpuResource(format!(
+                "Adobe cube LUT size must be at least 2, got {n}"
+            )));
+        }
+        let expected = expected_lut_sample_count(n).ok_or_else(|| {
+            VisoError::GpuResource(format!(
+                "Adobe cube LUT size {n} is unsupported"
+            ))
+        })?;
+        let actual = lut.rgb.len();
+        if actual != expected {
+            return Err(VisoError::GpuResource(format!(
+                "Adobe cube LUT has {actual} RGB samples but expected {expected}"
+            )));
+        }
         let max_dim = context.device.limits().max_texture_dimension_3d;
         if n > max_dim {
             return Err(VisoError::GpuResource(format!(
@@ -76,10 +92,7 @@ impl AdobeCubeLutTexture {
 
         // Packed RGBA16F bytes; same sample order as the `.cube` file.
         let bytes = lut.rgba16f_bytes_volume_order();
-        debug_assert_eq!(
-            bytes.len(),
-            (n as usize).saturating_pow(3).saturating_mul(8)
-        );
+        debug_assert_eq!(bytes.len(), expected.saturating_mul(8));
 
         context.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
