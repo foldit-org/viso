@@ -8,7 +8,6 @@ use crate::camera::controller::CameraController;
 use crate::camera::core::Camera;
 use crate::engine::positions::EntityPositions;
 use crate::error::VisoError;
-use crate::gpu::adobe_cube_lut::AdobeCubeLutTexture;
 use crate::gpu::lighting::Lighting;
 use crate::gpu::{RenderContext, ShaderComposer};
 use crate::options::{GeometryOptions, LightingOptions, VisoOptions};
@@ -64,9 +63,6 @@ pub(crate) struct GpuPipeline {
     /// maps, entity surfaces, cavities). The matching sender lives on
     /// [`crate::engine::surface_regen::SurfaceRegen`].
     pub(crate) density_rx: mpsc::Receiver<(Vec<IsosurfaceVertex>, Vec<u32>)>,
-    /// Optional Adobe `.cube` color LUT uploaded as `Rgba16Float`; composite
-    /// binds and samples it when set via [`GpuPipeline::set_adobe_cube_lut`].
-    pub(crate) adobe_cube_lut: Option<AdobeCubeLutTexture>,
 }
 
 impl GpuPipeline {
@@ -137,7 +133,6 @@ impl GpuPipeline {
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         self.context.resize(width, height);
         self.post_process.resize(&self.context);
-        self.sync_composite_adobe_cube_lut();
         self.renderers.isosurface.set_back_face_depth_view(
             &self.context.device,
             &self.post_process.backface_depth_view,
@@ -145,13 +140,6 @@ impl GpuPipeline {
         self.pick
             .picking
             .resize(&self.context.device, width, height);
-    }
-
-    fn sync_composite_adobe_cube_lut(&mut self) {
-        self.post_process.sync_adobe_cube_lut(
-            &self.context,
-            self.adobe_cube_lut.as_ref(),
-        );
     }
 
     /// Upload prepared scene geometry to GPU renderers.
@@ -485,16 +473,6 @@ impl GpuPipeline {
         &mut self,
         lut: Option<LutRgbCube3d>,
     ) -> Result<(), VisoError> {
-        if let Some(parsed) = lut {
-            let n = parsed.size;
-            let gpu_lut = AdobeCubeLutTexture::try_new(&self.context, &parsed)?;
-            self.adobe_cube_lut = Some(gpu_lut);
-            log::info!("Adobe cube LUT active (LUT_3D_SIZE {n})");
-        } else {
-            self.adobe_cube_lut = None;
-            log::info!("Adobe cube LUT cleared");
-        }
-        self.sync_composite_adobe_cube_lut();
-        Ok(())
+        self.post_process.set_adobe_cube_lut(&self.context, lut)
     }
 }

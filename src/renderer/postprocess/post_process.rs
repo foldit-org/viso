@@ -5,9 +5,11 @@ use super::{
     SsaoRenderer,
 };
 use crate::error::VisoError;
+use crate::gpu::adobe_cube_lut::AdobeCubeLutTexture;
 use crate::gpu::pipeline_helpers::create_render_texture;
 use crate::gpu::{RenderContext, ShaderComposer};
 use crate::options::VisoOptions;
+use crate::util::lut_adobe_cube::LutRgbCube3d;
 
 /// Camera parameters needed for post-processing passes.
 pub(crate) struct PostProcessCamera {
@@ -30,6 +32,8 @@ pub(crate) struct PostProcessStack {
     pub(crate) bloom_pass: BloomPass,
     pub(crate) composite_pass: CompositePass,
     pub(crate) fxaa_pass: FxaaPass,
+    /// Optional Adobe `.cube` LUT uploaded as a 3D `Rgba16Float` texture.
+    pub(crate) adobe_cube_lut: Option<AdobeCubeLutTexture>,
 }
 
 impl PostProcessStack {
@@ -90,6 +94,7 @@ impl PostProcessStack {
             bloom_pass,
             composite_pass,
             fxaa_pass,
+            adobe_cube_lut: None,
         })
     }
 
@@ -128,6 +133,9 @@ impl PostProcessStack {
         self.fxaa_pass.resize(context);
         self.composite_pass
             .set_output_view(self.fxaa_pass.get_input_view().clone());
+
+        // Restore LUT binding after bind group recreation.
+        self.sync_adobe_cube_lut(context);
     }
 
     /// Run the SSAO → bloom → composite → FXAA sequence.
@@ -153,14 +161,34 @@ impl PostProcessStack {
         self.fxaa_pass.render(encoder);
     }
 
-    /// Rebind composite LUT after [`crate::renderer::GpuPipeline`] load/unload
-    /// or window resize.
-    pub(crate) fn sync_adobe_cube_lut(
+    /// Rebind the composite LUT after load/unload or window resize.
+    pub(crate) fn sync_adobe_cube_lut(&mut self, context: &RenderContext) {
+        self.composite_pass
+            .sync_adobe_cube_lut(context, self.adobe_cube_lut.as_ref());
+    }
+
+    /// Load or unload an Adobe `.cube` LUT as a GPU 3D `Rgba16Float` texture.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisoError::GpuResource`] when `lut.size` exceeds the adapter's
+    /// [`wgpu::Limits::max_texture_dimension_3d`].
+    pub(crate) fn set_adobe_cube_lut(
         &mut self,
         context: &RenderContext,
-        lut: Option<&crate::gpu::adobe_cube_lut::AdobeCubeLutTexture>,
-    ) {
-        self.composite_pass.sync_adobe_cube_lut(context, lut);
+        lut: Option<LutRgbCube3d>,
+    ) -> Result<(), VisoError> {
+        if let Some(parsed) = lut {
+            let n = parsed.size;
+            self.adobe_cube_lut =
+                Some(AdobeCubeLutTexture::try_new(context, &parsed)?);
+            log::info!("Adobe cube LUT active (LUT_3D_SIZE {n})");
+        } else {
+            self.adobe_cube_lut = None;
+            log::info!("Adobe cube LUT cleared");
+        }
+        self.sync_adobe_cube_lut(context);
+        Ok(())
     }
 
     /// Update fog uniforms.
