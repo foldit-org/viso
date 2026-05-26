@@ -34,7 +34,7 @@ use crate::animation::AnimationState;
 use crate::camera::controller::CameraController;
 use crate::options::VisoOptions;
 use crate::renderer::GpuPipeline;
-use crate::{camera, parse_adobe_cube_bytes, parse_adobe_cube_str, VisoError};
+use crate::{camera, VisoError};
 
 /// Stored constraint specifications (bands + pull), resolved to world-space
 /// each frame.
@@ -231,7 +231,7 @@ impl VisoEngine {
     /// [`wgpu::Limits::max_texture_dimension_3d`].
     pub fn set_adobe_cube_lut(
         &mut self,
-        lut: Option<crate::LutRgbCube3d>,
+        lut: Option<crate::util::lut_adobe_cube::LutRgbCube3d>,
     ) -> Result<(), VisoError> {
         self.gpu.set_adobe_cube_lut(lut)
     }
@@ -243,7 +243,7 @@ impl VisoEngine {
     /// Returns [`VisoError::OptionsParse`] on parse failure, or
     /// [`VisoError::GpuResource`] if the LUT exceeds device 3D texture limits.
     pub fn set_adobe_cube_lut_from_str(&mut self, cube: &str) -> Result<(), VisoError> {
-        let lut = parse_adobe_cube_str(cube)?;
+        let lut = crate::util::lut_adobe_cube::parse_adobe_cube_str(cube)?;
         self.set_adobe_cube_lut(Some(lut))
     }
 
@@ -257,7 +257,7 @@ impl VisoEngine {
         &mut self,
         bytes: &[u8],
     ) -> Result<(), VisoError> {
-        let lut = parse_adobe_cube_bytes(bytes)?;
+        let lut = crate::util::lut_adobe_cube::parse_adobe_cube_bytes(bytes)?;
         self.set_adobe_cube_lut(Some(lut))
     }
 

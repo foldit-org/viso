@@ -123,7 +123,7 @@ impl LutRgbCube3d {
 
 /// Returns 'size³' as [`usize`] if fits; otherwise [`None`].
 #[must_use]
-pub fn expected_lut_sample_count(size: u32) -> Option<usize> {
+pub(crate) fn expected_lut_sample_count(size: u32) -> Option<usize> {
     let n = usize::try_from(size).ok()?;
     n.checked_mul(n)?.checked_mul(n)
 }

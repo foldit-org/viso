@@ -13,9 +13,9 @@ mod error;
 mod parse;
 mod types;
 
-pub use error::LutCubeParseError;
-pub use parse::{parse_adobe_cube_bytes, parse_adobe_cube_str};
-pub use types::{expected_lut_sample_count, LutRgbCube3d};
+pub(crate) use error::LutCubeParseError;
+pub(crate) use parse::{parse_adobe_cube_bytes, parse_adobe_cube_str};
+pub(crate) use types::{expected_lut_sample_count, LutRgbCube3d};
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
