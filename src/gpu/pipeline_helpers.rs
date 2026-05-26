@@ -96,6 +96,21 @@ pub(crate) fn cube_texture(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
+/// Fragment-visible filterable float 3D texture binding (`texture_3d<f32>` in
+/// WGSL for `Rgba16Float` volumes).
+pub(crate) fn texture_3d_float(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D3,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
 /// Fragment-visible uniform buffer binding.
 pub(crate) fn uniform_buffer(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {

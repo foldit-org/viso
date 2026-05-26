@@ -7,6 +7,7 @@ use glam::{Mat4, Vec3};
 use crate::camera::controller::CameraController;
 use crate::camera::core::Camera;
 use crate::engine::positions::EntityPositions;
+use crate::error::VisoError;
 use crate::gpu::lighting::Lighting;
 use crate::gpu::{RenderContext, ShaderComposer};
 use crate::options::{GeometryOptions, LightingOptions, VisoOptions};
@@ -21,6 +22,7 @@ use crate::renderer::pipeline::{SceneProcessor, SceneRequest};
 use crate::renderer::postprocess::post_process::PostProcessCamera;
 use crate::renderer::postprocess::PostProcessStack;
 use crate::renderer::{GeometryPassInput, Renderers};
+use crate::util::lut_adobe_cube::LutRgbCube3d;
 
 /// Borrowed scene chain data needed by [`GpuPipeline::upload_prepared`].
 pub(crate) struct SceneChainData<'a> {
@@ -458,5 +460,19 @@ impl GpuPipeline {
         &self,
     ) -> &[crate::renderer::geometry::backbone::SheetOffset] {
         self.renderers.backbone.sheet_offsets()
+    }
+
+    /// Load or unload an Adobe LUT as a GPU 3D `Rgba16Float` texture and sync
+    /// the composite pass bind group and grid uniform.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisoError::GpuResource`] when [`LutRgbCube3d::size`]
+    /// exceeds the adapter's [`wgpu::Limits::max_texture_dimension_3d`].
+    pub(crate) fn set_adobe_cube_lut(
+        &mut self,
+        lut: Option<LutRgbCube3d>,
+    ) -> Result<(), VisoError> {
+        self.post_process.set_adobe_cube_lut(&self.context, lut)
     }
 }

@@ -8,6 +8,10 @@ pub enum VisoError {
     /// GPU context initialization failure.
     #[error("GPU error: {0}")]
     Gpu(#[from] RenderContextError),
+    /// Allocation or device-limit failure building a GPU resource (e.g. 3D
+    /// LUT).
+    #[error("GPU resource error: {0}")]
+    GpuResource(String),
     /// Failed to load a molecular structure file.
     #[error("structure load error: {0}")]
     StructureLoad(String),
@@ -20,6 +24,9 @@ pub enum VisoError {
     /// TOML options parsing/serialization failure.
     #[error("options parse error: {0}")]
     OptionsParse(String),
+    /// Color LUT parse/validation failure (e.g. Adobe `.cube`).
+    #[error("color LUT error: {0}")]
+    ColorLut(String),
     /// Viewer event-loop failure.
     #[error("viewer error: {0}")]
     Viewer(String),

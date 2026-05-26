@@ -31,10 +31,10 @@ use scene::Scene;
 use web_time::Instant;
 
 use crate::animation::AnimationState;
-use crate::camera;
 use crate::camera::controller::CameraController;
 use crate::options::VisoOptions;
 use crate::renderer::GpuPipeline;
+use crate::{camera, VisoError};
 
 /// Stored constraint specifications (bands + pull), resolved to world-space
 /// each frame.
@@ -217,6 +217,49 @@ impl VisoEngine {
             self.gpu.resize(width, height);
             self.camera_controller.resize(width, height);
         }
+    }
+
+    /// Load or clear the active color LUT from an Adobe ASCII `.cube` file
+    /// path.
+    ///
+    /// `None` clears the current LUT.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisoError::Io`] if the file cannot be read, [`VisoError::ColorLut`]
+    /// when the `.cube` contents are invalid, or [`VisoError::GpuResource`] if the
+    /// LUT exceeds device 3D texture limits.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_color_lut_from_cube_path(
+        &mut self,
+        path: Option<&std::path::Path>,
+    ) -> Result<(), VisoError> {
+        let Some(path) = path else {
+            return self.set_color_lut_from_cube_bytes(None);
+        };
+        let bytes = std::fs::read(path).map_err(VisoError::Io)?;
+        self.set_color_lut_from_cube_bytes(Some(&bytes))
+    }
+
+    /// Load or clear the active color LUT from Adobe ASCII `.cube` UTF-8 bytes.
+    ///
+    /// `None` clears the current LUT.
+    ///
+    /// This is the intended entrypoint for web/wasm hosts that receive file
+    /// contents via a browser file dialog.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisoError::ColorLut`] when the `.cube` contents are invalid, or
+    /// [`VisoError::GpuResource`] if the LUT exceeds device 3D texture limits.
+    pub fn set_color_lut_from_cube_bytes(
+        &mut self,
+        bytes: Option<&[u8]>,
+    ) -> Result<(), VisoError> {
+        let lut = bytes
+            .map(crate::util::lut_adobe_cube::parse_adobe_cube_bytes)
+            .transpose()?;
+        self.gpu.set_adobe_cube_lut(lut)
     }
 }
 

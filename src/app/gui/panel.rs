@@ -323,9 +323,12 @@ impl PanelController {
         let dialog = rfd::FileDialog::new()
             .add_filter("Structure", &["cif", "pdb", "ent", "bcif"])
             .add_filter("Density Map", &["mrc", "map", "ccp4"])
+            .add_filter("Color LUT", &["cube"])
             .add_filter(
                 "All Supported",
-                &["cif", "pdb", "ent", "bcif", "mrc", "map", "ccp4"],
+                &[
+                    "cif", "pdb", "ent", "bcif", "mrc", "map", "ccp4", "cube",
+                ],
             )
             .set_title("Open File");
 
@@ -419,6 +422,15 @@ fn parse_and_load(
         )
         .map_err(|e| format!("Density parse error: {e}"))?;
         let _ = engine.density_mut().load(map);
+        Ok(())
+    } else if ext.eq_ignore_ascii_case("cube") {
+        engine
+            .set_color_lut_from_cube_path(Some(std::path::Path::new(path)))
+            .map_err(|e| format!("LUT error: {e}"))?;
+        log::info!(
+            "Adobe cube LUT loaded (grid size from file; path recorded in \
+             options)"
+        );
         Ok(())
     } else {
         use molex::adapters::pdb::structure_file_to_entities;
