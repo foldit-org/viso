@@ -92,7 +92,7 @@ struct CompositeViews<'a> {
     pub sampler: &'a wgpu::Sampler,
     pub depth_sampler: &'a wgpu::Sampler,
     pub params_buffer: &'a wgpu::Buffer,
-    /// Placeholder 3D LUT (`1³`); PR3+ may swap the bound view.
+    /// Placeholder 3D LUT (`1³`);
     pub adobe_lut_tex: &'a wgpu::TextureView,
     pub adobe_lut_sampler: &'a wgpu::Sampler,
 }

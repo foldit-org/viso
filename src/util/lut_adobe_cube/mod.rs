@@ -1,5 +1,5 @@
 //! Read Adobe / DaVinci style `.cube` 3D LUT files on the CPU, and produce
-//! GPU-oriented packed RGBA bytes (`Rgba16Float` upload path for PR2+).
+//! GPU-oriented packed RGBA bytes (`Rgba16Float` upload path).
 //!
 //! Supports a small strict format: `LUT_3D_SIZE N`, then `N×N×N` lines of three
 //! RGB numbers. Skips blank lines, `#` comments, `TITLE` / `DOMAIN_*` lines,
