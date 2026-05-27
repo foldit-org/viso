@@ -1,3 +1,5 @@
+use molex::entity::molecule::id::EntityId;
+
 use super::prepared::{
     BackboneMeshData, BallAndStickInstances, CachedEntityMesh,
     NucleicAcidInstances, PreparedRebuild,
@@ -102,10 +104,21 @@ struct MeshAccumulator {
     bns_pick_entities: Vec<(u32, u32)>,
     // Residue tracking
     residue_offset: u32,
+    /// Each entity's first global residue index in the GPU selection /
+    /// per-residue color space, captured before `residue_offset` is
+    /// advanced for the entity. Skips entities whose
+    /// `CachedEntityMesh` is absent from `MeshCache`; the upstream
+    /// `MeshCache::update` always materializes one entry per
+    /// `FullRebuildEntity`, so this stays aligned with the
+    /// assembly-order visible-entity walk in
+    /// `super::super::engine::culling::flat_sidechain_state`.
+    entity_residue_offsets: Vec<(EntityId, u32)>,
 }
 
 impl MeshAccumulator {
     fn push_entity(&mut self, mesh: &CachedEntityMesh) {
+        self.entity_residue_offsets
+            .push((mesh.entity_id, self.residue_offset));
         self.push_backbone(mesh);
 
         // Sidechain instances (self-contained)
@@ -125,7 +138,7 @@ impl MeshAccumulator {
 
         if mesh.bns_atom_count > 0 {
             self.bns_pick_entities
-                .push((mesh.entity_id, mesh.bns_atom_count));
+                .push((*mesh.entity_id, mesh.bns_atom_count));
         }
 
         self.residue_offset += mesh.residue_count;
@@ -253,6 +266,7 @@ impl MeshAccumulator {
                 ring_count: self.na_ring_count,
             },
             pick_map,
+            entity_residue_offsets: self.entity_residue_offsets,
         }
     }
 }

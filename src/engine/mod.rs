@@ -18,7 +18,7 @@ pub(crate) mod surface_regen;
 mod sync;
 pub(crate) mod trajectory;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use annotations::EntityAnnotations;
@@ -705,5 +705,32 @@ impl VisoEngine {
     /// Update the cursor position for GPU picking.
     pub fn set_cursor_pos(&mut self, x: f32, y: f32) {
         self.gpu.cursor_pos = (x, y);
+    }
+
+    /// Per-entity first global residue index in the GPU selection /
+    /// per-residue color space. Refreshed on every `FullRebuild`
+    /// upload; empty before the first rebuild has landed.
+    #[must_use]
+    pub fn entity_residue_offsets(&self) -> &BTreeMap<EntityId, u32> {
+        &self.gpu.pick.entity_residue_offsets
+    }
+
+    /// Overwrite the residue selection with `residues` (already
+    /// translated into the GPU's flat residue index space) and
+    /// regenerate the GPU selection bitset.
+    pub fn set_selection(&mut self, residues: Vec<i32>) {
+        self.gpu.pick.picking.selected_residues = residues;
+        self.gpu
+            .pick
+            .update_selection_buffer(&self.gpu.context.queue);
+    }
+
+    /// Project a world-space point to screen coordinates (pixels,
+    /// origin top-left). Returns `None` if the point is at or behind
+    /// the camera.
+    #[must_use]
+    pub fn world_to_screen(&self, world: glam::Vec3) -> Option<glam::Vec2> {
+        self.camera_controller
+            .world_to_screen(world, self.viewport_size())
     }
 }

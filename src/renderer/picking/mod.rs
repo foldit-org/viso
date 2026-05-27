@@ -7,6 +7,9 @@ mod pick_map;
 mod pipeline;
 pub(crate) mod state;
 
+use std::collections::BTreeMap;
+
+use molex::entity::molecule::id::EntityId;
 use molex::SSType;
 pub(crate) use pick_map::PickMap;
 pub use pick_map::PickTarget;
@@ -32,6 +35,9 @@ pub(crate) struct PickingSystem {
     pub(crate) pick_map: Option<PickMap>,
     /// Last resolved hover target.
     pub(crate) hovered_target: PickTarget,
+    /// Each entity's first global residue index in the GPU selection /
+    /// per-residue color space. Refreshed on every `upload_prepared`.
+    pub(crate) entity_residue_offsets: BTreeMap<EntityId, u32>,
 }
 
 impl PickingSystem {
@@ -52,6 +58,7 @@ impl PickingSystem {
             residue_colors,
             pick_map: None,
             hovered_target: PickTarget::None,
+            entity_residue_offsets: BTreeMap::new(),
         })
     }
 

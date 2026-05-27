@@ -294,7 +294,7 @@ pub(super) fn generate_entity_mesh(
         na,
         residue_count,
         bns_atom_count,
-        entity_id: *entity.id,
+        entity_id: entity.id,
     }
 }
 

@@ -196,6 +196,8 @@ impl GpuPipeline {
             &prepared.na,
         );
         self.pick.pick_map = Some(prepared.pick_map.clone());
+        self.pick.entity_residue_offsets =
+            prepared.entity_residue_offsets.iter().copied().collect();
         self.pick.groups.rebuild_all(
             &self.pick.picking,
             &self.context.device,

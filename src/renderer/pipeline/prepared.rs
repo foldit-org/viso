@@ -172,6 +172,9 @@ pub(crate) struct PreparedRebuild {
     pub(crate) na: NucleicAcidInstances,
     /// Mapping from raw GPU pick IDs to typed pick targets.
     pub(crate) pick_map: PickMap,
+    /// Each entity's first global residue index in the GPU selection /
+    /// per-residue color space, in assembly-visible order.
+    pub(crate) entity_residue_offsets: Vec<(EntityId, u32)>,
 }
 
 /// Pre-computed animation frame data, ready for GPU upload.
@@ -210,5 +213,5 @@ pub(super) struct CachedEntityMesh {
     /// did not produce any ball-and-stick instances).
     pub bns_atom_count: u32,
     /// Entity id, recorded per cached mesh for pick map reconstruction.
-    pub entity_id: u32,
+    pub entity_id: EntityId,
 }
