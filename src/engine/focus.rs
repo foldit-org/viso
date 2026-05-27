@@ -7,7 +7,7 @@ use molex::entity::molecule::id::EntityId;
 pub enum Focus {
     /// All entities.
     #[default]
-    Session,
+    All,
     /// A specific entity.
     Entity(EntityId),
 }

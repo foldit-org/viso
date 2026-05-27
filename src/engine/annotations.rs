@@ -118,16 +118,16 @@ impl EntityAnnotations {
     /// build the list themselves.
     pub(crate) fn cycle_focus(&mut self, focusable: &[EntityId]) -> Focus {
         self.focus = match self.focus {
-            Focus::Session => focusable
+            Focus::All => focusable
                 .first()
-                .map_or(Focus::Session, |&id| Focus::Entity(id)),
+                .map_or(Focus::All, |&id| Focus::Entity(id)),
             Focus::Entity(current) => {
                 let idx = focusable.iter().position(|&id| id == current);
                 match idx {
                     Some(i) if i + 1 < focusable.len() => {
                         Focus::Entity(focusable[i + 1])
                     }
-                    _ => Focus::Session,
+                    _ => Focus::All,
                 }
             }
         };

@@ -164,7 +164,7 @@ impl VisoApp {
         engine.sync_now();
 
         if fit_camera {
-            engine.fit_session_camera();
+            engine.fit_all_camera();
         }
         ids
     }

@@ -262,7 +262,7 @@ impl VisoEngine {
                 CommandOutcome::FocusChanged
             }
             VisoCommand::ResetFocus => {
-                self.annotations.focus = Focus::Session;
+                self.annotations.focus = Focus::All;
                 self.fit_camera_to_focus();
                 CommandOutcome::FocusChanged
             }
@@ -488,11 +488,11 @@ impl VisoEngine {
         self.camera_controller.set_pose(center, eye, up);
     }
 
-    /// Fit the camera to the currently focused element (session-wide
+    /// Fit the camera to the currently focused element (all-entities
     /// bounding sphere, or the focused entity's bounding sphere).
     pub fn fit_camera_to_focus(&mut self) {
         match self.annotations.focus {
-            Focus::Session => self.fit_session_camera(),
+            Focus::All => self.fit_all_camera(),
             Focus::Entity(eid) => {
                 if let Some(entity) =
                     self.scene.current.entities().iter().find(|e| e.id() == eid)
@@ -508,7 +508,7 @@ impl VisoEngine {
 
     /// Fit the camera to the combined bounding sphere of every visible
     /// entity.
-    pub(crate) fn fit_session_camera(&mut self) {
+    pub(crate) fn fit_all_camera(&mut self) {
         let visible: Vec<&MoleculeEntity> = self
             .scene
             .current
@@ -559,12 +559,12 @@ impl VisoEngine {
         self.gpu.pick.hovered_target
     }
 
-    /// The currently focused entity ID, or `None` when focus is session-wide.
+    /// The currently focused entity ID, or `None` when focus is `Focus::All`.
     #[must_use]
     pub fn focused_entity(&self) -> Option<EntityId> {
         match self.annotations.focus {
             Focus::Entity(id) => Some(id),
-            Focus::Session => None,
+            Focus::All => None,
         }
     }
 
