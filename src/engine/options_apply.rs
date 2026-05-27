@@ -180,19 +180,19 @@ impl VisoEngine {
     ) {
         // --- Global-only concerns ---
         if globals.waters {
-            self.set_type_visibility(
+            self.apply_type_visibility(
                 MoleculeType::Water,
                 self.options.display.show_waters,
             );
         }
         if globals.ions {
-            self.set_type_visibility(
+            self.apply_type_visibility(
                 MoleculeType::Ion,
                 self.options.display.show_ions,
             );
         }
         if globals.solvent {
-            self.set_type_visibility(
+            self.apply_type_visibility(
                 MoleculeType::Solvent,
                 self.options.display.show_solvent,
             );

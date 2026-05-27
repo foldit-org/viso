@@ -195,6 +195,9 @@ impl VisoEngine {
             scene: Scene::new(),
             annotations: EntityAnnotations::default(),
             surface_regen: SurfaceRegen::new(density_tx),
+            input_state: crate::input::click_state::InputState::new(),
+            mouse_pressed: false,
+            shift_pressed: false,
         })
     }
 }

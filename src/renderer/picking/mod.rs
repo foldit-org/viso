@@ -87,97 +87,129 @@ impl PickingSystem {
         }
     }
 
-    /// Select all residues in the same secondary-structure segment as
-    /// `residue_idx`. If `extend` is true the new residues are added to the
-    /// existing selection; otherwise the selection is replaced.
-    ///
-    /// `ss_types` is the per-residue secondary-structure classification
-    /// (indexed by flat residue index).
-    ///
-    /// Returns `true` if the selection changed.
-    pub(crate) fn select_segment(
-        &mut self,
+    /// Walk backwards / forwards from `residue_idx` to find the
+    /// contiguous run of residues with the same secondary structure.
+    /// Returns the half-open range `[start, end+1)` of flat residue
+    /// indices, or `None` if `residue_idx` is out of bounds.
+    fn segment_range(
         residue_idx: i32,
         ss_types: &[SSType],
-        extend: bool,
-    ) -> bool {
+    ) -> Option<std::ops::Range<usize>> {
         if residue_idx < 0 || (residue_idx as usize) >= ss_types.len() {
-            return false;
+            return None;
         }
-
         let idx = residue_idx as usize;
         let target_ss = ss_types[idx];
 
-        // Walk backwards to the start of this SS segment
         let mut start = idx;
         while start > 0 && ss_types[start - 1] == target_ss {
             start -= 1;
         }
 
-        // Walk forwards to the end of this SS segment
         let mut end = idx;
         while end + 1 < ss_types.len() && ss_types[end + 1] == target_ss {
             end += 1;
         }
 
-        if !extend {
-            self.picking.selected_residues.clear();
-        }
-
-        for i in start..=end {
-            let residue = i as i32;
-            if !self.picking.selected_residues.contains(&residue) {
-                self.picking.selected_residues.push(residue);
-            }
-        }
-
-        true
+        Some(start..end + 1)
     }
 
-    /// Select all residues in the same chain as `residue_idx`. Chains are
-    /// described by `backbone_chains` (each entry is one chain's SoA
-    /// backbone atoms; its residue count is
-    /// [`ProteinBackboneChain::residue_count`]).
-    ///
-    /// If `extend` is true the new residues are added to the existing
-    /// selection; otherwise the selection is replaced.
-    ///
-    /// Returns `true` if the selection changed.
-    pub(crate) fn select_chain(
-        &mut self,
+    /// Find the chain that contains `residue_idx` and return its
+    /// half-open range of flat residue indices, or `None` if
+    /// `residue_idx` falls outside every chain.
+    fn chain_range(
         residue_idx: i32,
         backbone_chains: &[ProteinBackboneChain],
-        extend: bool,
-    ) -> bool {
+    ) -> Option<std::ops::Range<usize>> {
         if residue_idx < 0 {
-            return false;
+            return None;
         }
         let target = residue_idx as usize;
-
         let mut global_start = 0usize;
-        let chain_range = backbone_chains.iter().find_map(|chain| {
+        backbone_chains.iter().find_map(|chain| {
             let chain_residues = chain.ca().len();
             let global_end = global_start + chain_residues;
             let result = (target >= global_start && target < global_end)
                 .then_some(global_start..global_end);
             global_start = global_end;
             result
-        });
+        })
+    }
 
-        let Some(range) = chain_range else {
-            return false;
-        };
-
-        if !extend {
-            self.picking.selected_residues.clear();
-        }
-        for i in range {
-            let residue = i as i32;
-            if !self.picking.selected_residues.contains(&residue) {
-                self.picking.selected_residues.push(residue);
+    /// Map a flat residue index back to `(EntityId, residue_in_entity)`
+    /// by walking the per-entity offsets table. Returns `None` when
+    /// the offsets table is empty (before the first full rebuild) or
+    /// when `flat` falls outside every entity's residue span.
+    ///
+    /// The offsets are stored in `BTreeMap<EntityId, u32>` keyed by
+    /// `EntityId`; entity order in the GPU residue space is the
+    /// insertion order produced by mesh concat (assembly order),
+    /// which does not necessarily match `EntityId` order. We sort
+    /// (offset, entity) pairs here and find the last entity whose
+    /// offset is `<= flat`.
+    pub(crate) fn flat_to_entity_residue(
+        &self,
+        flat: u32,
+    ) -> Option<(EntityId, u32)> {
+        let mut entries: Vec<(u32, EntityId)> = self
+            .entity_residue_offsets
+            .iter()
+            .map(|(eid, off)| (*off, *eid))
+            .collect();
+        entries.sort_by_key(|(off, _)| *off);
+        // Find the last entry whose offset is <= flat.
+        let mut owner: Option<(u32, EntityId)> = None;
+        for entry in entries {
+            if entry.0 <= flat {
+                owner = Some(entry);
+            } else {
+                break;
             }
         }
-        true
+        owner.map(|(off, eid)| (eid, flat - off))
+    }
+
+    /// Map a half-open range of flat residue indices into the
+    /// `(EntityId, residue_in_entity)` pairs each one resolves to.
+    /// Entries that fall outside any entity's residue span are
+    /// silently dropped (only happens before the first rebuild
+    /// publishes offsets).
+    fn flat_range_to_pairs(
+        &self,
+        range: std::ops::Range<usize>,
+    ) -> Vec<(EntityId, u32)> {
+        range
+            .filter_map(|flat| self.flat_to_entity_residue(flat as u32))
+            .collect()
+    }
+
+    /// Per-entity residue list for the SS segment that contains
+    /// `residue_idx`. Empty if `residue_idx` is out of bounds or no
+    /// entity owns the resulting flat residues.
+    pub(crate) fn residues_in_segment(
+        &self,
+        residue_idx: i32,
+        ss_types: &[SSType],
+    ) -> Vec<(EntityId, u32)> {
+        let Some(range) = Self::segment_range(residue_idx, ss_types) else {
+            return Vec::new();
+        };
+        self.flat_range_to_pairs(range)
+    }
+
+    /// Per-entity residue list for the chain that contains
+    /// `residue_idx`. Empty if `residue_idx` falls outside every
+    /// chain.
+    pub(crate) fn residues_in_chain(
+        &self,
+        residue_idx: i32,
+        backbone_chains: &[ProteinBackboneChain],
+    ) -> Vec<(EntityId, u32)> {
+        let Some(range) = Self::chain_range(residue_idx, backbone_chains)
+        else {
+            return Vec::new();
+        };
+        self.flat_range_to_pairs(range)
     }
 
     /// Build the picking geometry descriptor from current renderer state.

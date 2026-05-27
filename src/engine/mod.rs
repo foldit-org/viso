@@ -1,6 +1,6 @@
 pub(crate) mod annotations;
 mod bootstrap;
-/// The engine's complete interactive vocabulary.
+/// Structural reference types for atom-anchored constraints.
 pub(crate) mod command;
 pub(crate) mod constraint;
 mod culling;
@@ -9,16 +9,20 @@ pub(crate) mod density_store;
 pub(crate) mod entity_view;
 /// Focus state for tab cycling.
 pub(crate) mod focus;
+/// Pointer / scroll / modifier intake and click-expansion helpers.
+mod intake;
 mod options_apply;
 pub(crate) mod positions;
 pub(crate) mod scene;
+/// Scene operations callable directly on `VisoEngine`.
+mod scene_ops;
 pub(crate) mod scene_state;
 pub(crate) mod surface;
 pub(crate) mod surface_regen;
 mod sync;
 pub(crate) mod trajectory;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use annotations::EntityAnnotations;
@@ -26,7 +30,7 @@ pub(crate) use bootstrap::FrameTiming;
 use density_store::DensityStore;
 use focus::Focus;
 use molex::entity::molecule::id::EntityId;
-use molex::{Assembly, MoleculeEntity, MoleculeType};
+use molex::{Assembly, MoleculeEntity};
 use scene::Scene;
 use web_time::Instant;
 
@@ -100,6 +104,15 @@ pub struct VisoEngine {
     /// lives on [`GpuPipeline`]; main-thread polling happens in
     /// [`GpuPipeline::apply_pending_density_mesh`].
     pub(crate) surface_regen: surface_regen::SurfaceRegen,
+
+    // ── Input state ───────────────────────────────────────────────
+    /// Multi-click classifier + drag-detection state, fed by
+    /// [`Self::feed_pointer_motion`] and [`Self::feed_pointer_button`].
+    pub(crate) input_state: crate::input::click_state::InputState,
+    /// Whether the primary mouse button is currently held.
+    pub(crate) mouse_pressed: bool,
+    /// Whether the shift modifier is currently held.
+    pub(crate) shift_pressed: bool,
 }
 
 // ── Frame loop ──
@@ -217,155 +230,6 @@ impl VisoEngine {
             self.gpu.resize(width, height);
             self.camera_controller.resize(width, height);
         }
-    }
-}
-
-// ── Command dispatch ──
-
-impl VisoEngine {
-    /// Execute a single [`command::VisoCommand`].
-    ///
-    /// Returns a [`command::CommandOutcome`] describing what (if
-    /// anything) observably changed. Callers that only care about a
-    /// specific outcome can `matches!` on the relevant variant.
-    pub fn execute(
-        &mut self,
-        cmd: command::VisoCommand,
-    ) -> command::CommandOutcome {
-        use command::{CommandOutcome, VisoCommand};
-        match cmd {
-            // Camera
-            VisoCommand::RecenterCamera => {
-                self.fit_camera_to_focus();
-                CommandOutcome::NoEffect
-            }
-            VisoCommand::ToggleAutoRotate => {
-                let _ = self.camera_controller.toggle_auto_rotate();
-                CommandOutcome::NoEffect
-            }
-            VisoCommand::RotateCamera { delta } => {
-                self.camera_controller.rotate(delta);
-                CommandOutcome::NoEffect
-            }
-            VisoCommand::PanCamera { delta } => {
-                self.camera_controller.pan(delta);
-                CommandOutcome::NoEffect
-            }
-            VisoCommand::Zoom { delta } => {
-                self.camera_controller.zoom(delta);
-                CommandOutcome::NoEffect
-            }
-            // Focus
-            VisoCommand::CycleFocus => {
-                let _ = self.annotations_mut().cycle_focus();
-                self.fit_camera_to_focus();
-                CommandOutcome::FocusChanged
-            }
-            VisoCommand::ResetFocus => {
-                self.annotations.focus = Focus::All;
-                self.fit_camera_to_focus();
-                CommandOutcome::FocusChanged
-            }
-            // Playback
-            VisoCommand::ToggleTrajectory => {
-                self.animation.toggle_trajectory();
-                CommandOutcome::NoEffect
-            }
-            // Selection
-            VisoCommand::ClearSelection => {
-                selection_outcome(self.gpu.pick.clear_selection())
-            }
-            VisoCommand::SelectResidue { index, extend } => selection_outcome(
-                self.gpu.pick.picking.handle_click(index, extend),
-            ),
-            VisoCommand::SelectSegment { index, extend } => {
-                let ss = self.concatenated_cartoon_ss();
-                selection_outcome(
-                    self.gpu.pick.select_segment(index, &ss, extend),
-                )
-            }
-            VisoCommand::SelectChain { index, extend } => {
-                let chains = self.gpu.renderers.backbone.cached_chains();
-                selection_outcome(
-                    self.gpu.pick.select_chain(index, chains, extend),
-                )
-            }
-            // Entity management
-            VisoCommand::FocusEntity { id } => {
-                if let Some(eid) = self.entity_id(id) {
-                    self.annotations.focus = Focus::Entity(eid);
-                    self.fit_camera_to_focus();
-                    CommandOutcome::FocusChanged
-                } else {
-                    CommandOutcome::NoEffect
-                }
-            }
-            VisoCommand::ToggleEntityVisibility { id } => {
-                let currently_visible = self.is_entity_visible(id);
-                self.set_entity_visible(id, !currently_visible);
-                self.sync_scene_to_renderers(HashMap::new());
-                CommandOutcome::VisibilityChanged
-            }
-            VisoCommand::RemoveEntity { .. } => {
-                log::warn!(
-                    "VisoCommand::RemoveEntity dispatched to \
-                     VisoEngine::execute — must go through VisoApp; ignoring"
-                );
-                CommandOutcome::Unhandled
-            }
-            // Display toggles — flip per-type visibility for every
-            // entity of that type and keep the display option in sync.
-            VisoCommand::SetTypeVisibility { mol_type, visible } => {
-                self.set_molecule_type_visibility(mol_type, visible);
-                CommandOutcome::VisibilityChanged
-            }
-            VisoCommand::CycleLipidMode => {
-                self.options.display.overrides.lipid_mode =
-                    Some(if self.options.display.lipid_ball_and_stick() {
-                        crate::options::LipidMode::Coarse
-                    } else {
-                        crate::options::LipidMode::BallAndStick
-                    });
-                self.refresh_ball_and_stick();
-                CommandOutcome::NoEffect
-            }
-        }
-    }
-
-    /// Resolve a `VisoCommand::SetTypeVisibility`: update the matching
-    /// `options.display.show_*` flag (toggling when `visible` is
-    /// `None`), broadcast the new value to every entity of `mol_type`,
-    /// and resync the scene. Unknown types no-op.
-    fn set_molecule_type_visibility(
-        &mut self,
-        mol_type: MoleculeType,
-        visible: Option<bool>,
-    ) {
-        let flag: Option<&mut bool> = match mol_type {
-            MoleculeType::Ion => Some(&mut self.options.display.show_ions),
-            MoleculeType::Water => Some(&mut self.options.display.show_waters),
-            MoleculeType::Solvent => {
-                Some(&mut self.options.display.show_solvent)
-            }
-            _ => None,
-        };
-        let Some(flag) = flag else {
-            return;
-        };
-        let next = visible.unwrap_or(!*flag);
-        *flag = next;
-        self.set_type_visibility(mol_type, next);
-        self.sync_scene_to_renderers(HashMap::new());
-    }
-}
-
-/// Map a selection-helper bool ("did selection actually change?") to
-/// the corresponding [`command::CommandOutcome`].
-fn selection_outcome(changed: bool) -> command::CommandOutcome {
-    if changed {
-        command::CommandOutcome::SelectionChanged
-    } else {
-        command::CommandOutcome::NoEffect
     }
 }
 

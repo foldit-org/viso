@@ -631,42 +631,6 @@ impl Picking {
 
         Some(raw_id)
     }
-
-    /// Process a click event, updating the selection based on the given
-    /// residue index.
-    ///
-    /// Returns `true` if the selection changed. Shift-click toggles individual
-    /// residues. Pass a negative index to clear the selection.
-    pub(crate) fn handle_click(
-        &mut self,
-        residue_idx: i32,
-        shift_held: bool,
-    ) -> bool {
-        let hit = residue_idx;
-
-        if hit < 0 {
-            if !self.selected_residues.is_empty() {
-                self.selected_residues.clear();
-                return true;
-            }
-            return false;
-        }
-
-        if shift_held {
-            if let Some(pos) =
-                self.selected_residues.iter().position(|&r| r == hit)
-            {
-                let _ = self.selected_residues.remove(pos);
-            } else {
-                self.selected_residues.push(hit);
-            }
-        } else {
-            self.selected_residues.clear();
-            self.selected_residues.push(hit);
-        }
-
-        true
-    }
 }
 
 fn storage_bind_group_layout(

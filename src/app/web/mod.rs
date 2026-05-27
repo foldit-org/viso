@@ -13,11 +13,11 @@ use wasm_bindgen::JsCast;
 pub use wasm_bindgen_rayon::init_thread_pool;
 use web_sys::HtmlCanvasElement;
 
-use crate::app::VisoApp;
+use crate::app::{SelectionStore, VisoApp};
 use crate::bridge::dispatch::{self, UiHost};
 use crate::bridge::{self, PanelAxis, UiAction};
 use crate::gpu::RenderContext;
-use crate::input::InputProcessor;
+use crate::input::KeyBindings;
 use crate::options::VisoOptions;
 use crate::VisoEngine;
 
@@ -43,6 +43,11 @@ type EngineHandle = Rc<RefCell<VisoEngine>>;
 /// build plays the same host role the native GUI does — owning
 /// `Assembly` + publisher and exposing the mutation surface.
 type AppHandle = Rc<RefCell<VisoApp>>;
+
+/// Thread-local handle to the consumer-side selection mirror that
+/// receives click events from [`VisoEngine::feed_pointer_button`]
+/// and flushes the result back to the engine's flat residue space.
+type SelectionHandle = Rc<RefCell<SelectionStore>>;
 
 // ---------------------------------------------------------------------------
 // Initialization
@@ -108,7 +113,8 @@ pub async fn start(canvas: HtmlCanvasElement) -> Result<(), JsValue> {
 
     let engine = Rc::new(RefCell::new(engine));
     let app = Rc::new(RefCell::new(app));
-    let input = Rc::new(RefCell::new(InputProcessor::new()));
+    let keybindings = Rc::new(KeyBindings::default());
+    let selection = Rc::new(RefCell::new(SelectionStore::new()));
 
     // Track panel axis and push orientation on init.  On resize, if the
     // axis changed, push the new orientation and re-apply layout.
@@ -156,7 +162,8 @@ pub async fn start(canvas: HtmlCanvasElement) -> Result<(), JsValue> {
     input::attach_input_listeners(
         &canvas,
         Rc::clone(&engine),
-        Rc::clone(&input),
+        Rc::clone(&keybindings),
+        Rc::clone(&selection),
     );
     input::attach_resize_observer(&canvas, Rc::clone(&engine));
 

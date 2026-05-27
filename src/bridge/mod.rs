@@ -4,7 +4,6 @@
 //! parsing, and the shared bridge JavaScript that both native (wry) and web
 //! (wasm) hosts inject into viso-ui.
 
-use crate::engine::command::VisoCommand;
 use crate::engine::focus::Focus;
 use crate::VisoEngine;
 
@@ -151,8 +150,16 @@ pub enum UiAction {
         /// New JSON value (null clears the override for that field).
         value: serde_json::Value,
     },
-    /// An engine command to forward via `engine.execute()`.
-    Command(VisoCommand),
+    /// Focus a specific entity by ID and fit the camera to it.
+    FocusEntity {
+        /// Entity identifier.
+        id: u32,
+    },
+    /// Toggle visibility of a specific entity.
+    ToggleEntityVisibility {
+        /// Entity identifier.
+        id: u32,
+    },
 }
 
 // ── IPC parsing ──────────────────────────────────────────────────────────
@@ -189,17 +196,11 @@ pub(crate) fn parse_action(msg: &serde_json::Value) -> Option<UiAction> {
         }
         "focus_entity" => {
             let id = msg.get("id")?.as_u64()? as u32;
-            Some(UiAction::Command(VisoCommand::FocusEntity { id }))
+            Some(UiAction::FocusEntity { id })
         }
         "toggle_entity_visibility" => {
             let id = msg.get("id")?.as_u64()? as u32;
-            Some(UiAction::Command(VisoCommand::ToggleEntityVisibility {
-                id,
-            }))
-        }
-        "remove_entity" => {
-            let id = msg.get("id")?.as_u64()? as u32;
-            Some(UiAction::Command(VisoCommand::RemoveEntity { id }))
+            Some(UiAction::ToggleEntityVisibility { id })
         }
         "clear_entity_option" | "clear_entity_appearance" => {
             let entity_id = msg.get("entity_id")?.as_u64()? as u32;

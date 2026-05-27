@@ -43,8 +43,17 @@ pub(crate) fn dispatch_engine_action(
             push_scene_entities(engine, host);
             None
         }
-        UiAction::Command(cmd) => {
-            let _ = engine.execute(cmd);
+        UiAction::FocusEntity { id } => {
+            if let Some(eid) = engine.entity_id(id) {
+                engine.focus_entity(eid);
+            }
+            push_scene_entities(engine, host);
+            None
+        }
+        UiAction::ToggleEntityVisibility { id } => {
+            if let Some(eid) = engine.entity_id(id) {
+                engine.toggle_entity_visibility(eid);
+            }
             push_scene_entities(engine, host);
             None
         }

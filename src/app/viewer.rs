@@ -20,10 +20,9 @@ use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use crate::app::VisoApp;
+use crate::app::{SelectionStore, VisoApp};
 use crate::error::VisoError;
-use crate::input::processor::InputProcessor;
-use crate::input::{InputEvent, MouseButton};
+use crate::input::{KeyBindings, MouseButton};
 use crate::options::VisoOptions;
 use crate::VisoEngine;
 
@@ -145,7 +144,8 @@ impl Viewer {
             window: None,
             engine: None,
             app: None,
-            input: InputProcessor::new(),
+            keybindings: KeyBindings::default(),
+            selection: SelectionStore::new(),
             last_frame_time: Instant::now(),
             path: self.path,
             options: self.options,
@@ -171,7 +171,10 @@ struct ViewerShell {
     window: Option<Arc<Window>>,
     engine: Option<VisoEngine>,
     app: Option<VisoApp>,
-    input: InputProcessor,
+    keybindings: KeyBindings,
+    /// Per-entity residue selection mirror; flushed through the
+    /// engine's flat residue space on every click.
+    selection: SelectionStore,
     last_frame_time: Instant,
     path: Option<String>,
     options: Option<VisoOptions>,
@@ -283,33 +286,20 @@ impl ViewerShell {
 
     // ── Input event handlers ────────────────────────────────────────
 
-    /// Forward a mouse/scroll/modifier event through the InputProcessor
-    /// and execute any resulting command.
-    fn dispatch_input(&mut self, event: InputEvent) {
-        let Some(engine) = &mut self.engine else {
-            return;
-        };
-        // Update cursor position for GPU picking
-        if let InputEvent::CursorMoved { x, y } = event {
-            engine.gpu.cursor_pos = (x, y);
-        }
-        if let Some(cmd) =
-            self.input.handle_event(event, engine.hovered_target())
-        {
-            let _ = engine.execute(cmd);
-        }
-    }
-
     fn handle_mouse_input(
         &mut self,
         button: winit::event::MouseButton,
         state: ElementState,
     ) {
+        let Some(engine) = &mut self.engine else {
+            return;
+        };
         let pressed = state == ElementState::Pressed;
-        self.dispatch_input(InputEvent::MouseButton {
-            button: MouseButton::from(button),
-            pressed,
-        });
+        let click =
+            engine.feed_pointer_button(MouseButton::from(button), pressed);
+        if let Some(click) = click {
+            self.selection.apply_click(engine, &click);
+        }
     }
 
     fn handle_cursor_moved(
@@ -317,10 +307,13 @@ impl ViewerShell {
         position: winit::dpi::PhysicalPosition<f64>,
     ) {
         #[allow(clippy::cast_possible_truncation)]
-        self.dispatch_input(InputEvent::CursorMoved {
-            x: position.x as f32,
-            y: position.y as f32,
-        });
+        let x = position.x as f32;
+        #[allow(clippy::cast_possible_truncation)]
+        let y = position.y as f32;
+        if let Some(engine) = &mut self.engine {
+            engine.gpu.cursor_pos = (x, y);
+            engine.feed_pointer_motion(x, y);
+        }
 
         let Some(window) = &self.window else { return };
         window.request_redraw();
@@ -332,17 +325,17 @@ impl ViewerShell {
             MouseScrollDelta::LineDelta(_, y) => y,
             MouseScrollDelta::PixelDelta(pos) => pos.y as f32 * 0.01,
         };
-        self.dispatch_input(InputEvent::Scroll {
-            delta: scroll_delta,
-        });
+        if let Some(engine) = &mut self.engine {
+            engine.feed_scroll(scroll_delta);
+        }
         let Some(w) = &self.window else { return };
         w.request_redraw();
     }
 
     fn handle_modifiers_changed(&mut self, modifiers: winit::event::Modifiers) {
-        self.dispatch_input(InputEvent::ModifiersChanged {
-            shift: modifiers.state().shift_key(),
-        });
+        if let Some(engine) = &mut self.engine {
+            engine.feed_modifiers(modifiers.state().shift_key());
+        }
     }
 
     fn handle_keyboard_input(&mut self, event: &winit::event::KeyEvent) {
@@ -368,9 +361,7 @@ impl ViewerShell {
         };
 
         let key_str = format!("{code:?}");
-        if let Some(cmd) = self.input.handle_key_press(&key_str) {
-            let _ = engine.execute(cmd);
-        }
+        let _ = self.keybindings.dispatch(&key_str, engine);
     }
 }
 

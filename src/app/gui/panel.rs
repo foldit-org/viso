@@ -226,11 +226,8 @@ impl PanelController {
                 self.open_file_dialog(app, engine);
             }
             UiAction::KeyPress { key } => {
-                if let Some(cmd) =
-                    crate::input::KeyBindings::default().lookup(&key)
-                {
-                    let _ = engine.execute(cmd);
-                }
+                let _ =
+                    crate::input::KeyBindings::default().dispatch(&key, engine);
             }
             // TogglePanel/ResizePanel are intercepted in
             // drain_and_apply; remaining variants are engine-level and

@@ -7,8 +7,8 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlCanvasElement;
 
-use super::EngineHandle;
-use crate::input::{InputEvent, InputProcessor, MouseButton};
+use super::{EngineHandle, SelectionHandle};
+use crate::input::{KeyBindings, MouseButton};
 
 fn dpr() -> f32 {
     web_sys::window()
@@ -19,12 +19,12 @@ fn dpr() -> f32 {
 pub(super) fn attach_input_listeners(
     canvas: &HtmlCanvasElement,
     engine: EngineHandle,
-    input: Rc<RefCell<InputProcessor>>,
+    keybindings: Rc<KeyBindings>,
+    selection: SelectionHandle,
 ) {
     // Mouse move
     {
         let engine = Rc::clone(&engine);
-        let input = Rc::clone(&input);
         let cb =
             Closure::<dyn FnMut(_)>::new(move |event: web_sys::MouseEvent| {
                 let scale = dpr();
@@ -32,12 +32,7 @@ pub(super) fn attach_input_listeners(
                 let y = event.offset_y() as f32 * scale;
                 let mut eng = engine.borrow_mut();
                 eng.set_cursor_pos(x, y);
-                let evt = InputEvent::CursorMoved { x, y };
-                if let Some(cmd) =
-                    input.borrow_mut().handle_event(evt, eng.hovered_target())
-                {
-                    let _ = eng.execute(cmd);
-                }
+                eng.feed_pointer_motion(x, y);
             });
         let _ = canvas.add_event_listener_with_callback(
             "mousemove",
@@ -49,7 +44,6 @@ pub(super) fn attach_input_listeners(
     // Mouse down
     {
         let engine = Rc::clone(&engine);
-        let input = Rc::clone(&input);
         let cb =
             Closure::<dyn FnMut(_)>::new(move |event: web_sys::MouseEvent| {
                 let button = match event.button() {
@@ -57,16 +51,8 @@ pub(super) fn attach_input_listeners(
                     1 => MouseButton::Middle,
                     _ => MouseButton::Left,
                 };
-                let evt = InputEvent::MouseButton {
-                    button,
-                    pressed: true,
-                };
                 let mut eng = engine.borrow_mut();
-                if let Some(cmd) =
-                    input.borrow_mut().handle_event(evt, eng.hovered_target())
-                {
-                    let _ = eng.execute(cmd);
-                }
+                let _ = eng.feed_pointer_button(button, true);
             });
         let _ = canvas.add_event_listener_with_callback(
             "mousedown",
@@ -78,7 +64,7 @@ pub(super) fn attach_input_listeners(
     // Mouse up
     {
         let engine = Rc::clone(&engine);
-        let input = Rc::clone(&input);
+        let selection = Rc::clone(&selection);
         let cb =
             Closure::<dyn FnMut(_)>::new(move |event: web_sys::MouseEvent| {
                 let button = match event.button() {
@@ -86,15 +72,13 @@ pub(super) fn attach_input_listeners(
                     1 => MouseButton::Middle,
                     _ => MouseButton::Left,
                 };
-                let evt = InputEvent::MouseButton {
-                    button,
-                    pressed: false,
+                let click = {
+                    let mut eng = engine.borrow_mut();
+                    eng.feed_pointer_button(button, false)
                 };
-                let mut eng = engine.borrow_mut();
-                if let Some(cmd) =
-                    input.borrow_mut().handle_event(evt, eng.hovered_target())
-                {
-                    let _ = eng.execute(cmd);
+                if let Some(click) = click {
+                    let mut eng = engine.borrow_mut();
+                    selection.borrow_mut().apply_click(&mut eng, &click);
                 }
             });
         let _ = canvas.add_event_listener_with_callback(
@@ -107,18 +91,12 @@ pub(super) fn attach_input_listeners(
     // Wheel
     {
         let engine = Rc::clone(&engine);
-        let input = Rc::clone(&input);
         let cb =
             Closure::<dyn FnMut(_)>::new(move |event: web_sys::WheelEvent| {
                 event.prevent_default();
                 let delta = -(event.delta_y() as f32) * 0.01;
-                let evt = InputEvent::Scroll { delta };
                 let mut eng = engine.borrow_mut();
-                if let Some(cmd) =
-                    input.borrow_mut().handle_event(evt, eng.hovered_target())
-                {
-                    let _ = eng.execute(cmd);
-                }
+                eng.feed_scroll(delta);
             });
         let opts = web_sys::AddEventListenerOptions::new();
         opts.set_passive(false);
@@ -148,7 +126,7 @@ pub(super) fn attach_input_listeners(
     // the canvas isn't explicitly focused.
     {
         let engine = Rc::clone(&engine);
-        let input = Rc::clone(&input);
+        let keybindings = Rc::clone(&keybindings);
         let cb = Closure::<dyn FnMut(_)>::new(
             move |event: web_sys::KeyboardEvent| {
                 // Let browser shortcuts (Cmd+R, Ctrl+Shift+R, etc.)
@@ -160,21 +138,16 @@ pub(super) fn attach_input_listeners(
                 // Browser KeyboardEvent.code uses the same naming as
                 // winit's KeyCode debug format: "KeyQ", "Tab", etc.
                 let code = event.code();
-                if let Some(cmd) = input.borrow_mut().handle_key_press(&code) {
+                let matched = {
+                    let mut eng = engine.borrow_mut();
+                    keybindings.dispatch(&code, &mut eng)
+                };
+                if matched {
                     event.prevent_default();
-                    let _ = engine.borrow_mut().execute(cmd);
                 }
 
                 // Forward shift state
-                let evt = InputEvent::ModifiersChanged {
-                    shift: event.shift_key(),
-                };
-                let mut eng = engine.borrow_mut();
-                if let Some(cmd) =
-                    input.borrow_mut().handle_event(evt, eng.hovered_target())
-                {
-                    let _ = eng.execute(cmd);
-                }
+                engine.borrow_mut().feed_modifiers(event.shift_key());
             },
         );
         let document = web_sys::window()
@@ -190,18 +163,9 @@ pub(super) fn attach_input_listeners(
     // Shift key release
     {
         let engine = Rc::clone(&engine);
-        let input = Rc::clone(&input);
         let cb = Closure::<dyn FnMut(_)>::new(
             move |event: web_sys::KeyboardEvent| {
-                let evt = InputEvent::ModifiersChanged {
-                    shift: event.shift_key(),
-                };
-                let mut eng = engine.borrow_mut();
-                if let Some(cmd) =
-                    input.borrow_mut().handle_event(evt, eng.hovered_target())
-                {
-                    let _ = eng.execute(cmd);
-                }
+                engine.borrow_mut().feed_modifiers(event.shift_key());
             },
         );
         let document = web_sys::window()

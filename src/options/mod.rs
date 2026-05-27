@@ -4,9 +4,8 @@
 //! display toggles) are consolidated here. Options serialize to/from TOML for
 //! view presets stored in `assets/view_presets/`.
 //!
-//! Key bindings live in [`crate::input::KeyBindings`] on the
-//! [`InputProcessor`](crate::input::InputProcessor), not here -- they are an
-//! input concern, not a rendering option.
+//! Key bindings live in [`crate::input::KeyBindings`], not here --
+//! they are an input concern, not a rendering option.
 
 mod camera;
 mod colors;

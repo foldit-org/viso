@@ -6,12 +6,10 @@
 //! # Key types
 //!
 //! - [`VisoEngine`] — the main rendering engine
-//! - [`VisoCommand`] — action vocabulary (camera, selection, focus, etc.)
 //! - [`VisoOptions`](options::VisoOptions) — runtime configuration (display,
 //!   lighting, camera, colors)
 //! - [`VisoError`] — error type
-//! - [`InputProcessor`] — optional convenience for translating raw input events
-//!   into [`VisoCommand`]s
+//! - [`KeyBindings`] — physical-key → engine-action dispatch table
 //!
 //! # Architecture
 //!
@@ -50,10 +48,7 @@ pub use app::viewer::{Viewer, ViewerBuilder};
 pub use app::VisoApp;
 #[cfg(feature = "gui")]
 pub use bridge::UiAction;
-pub use engine::command::{
-    AtomRef, BandInfo, BandTarget, BandType, CommandOutcome, PullInfo,
-    VisoCommand,
-};
+pub use engine::command::{AtomRef, BandInfo, BandTarget, BandType, PullInfo};
 pub use engine::constraint::PickedResidueAtom;
 pub use engine::focus::Focus;
 pub use engine::VisoEngine;
@@ -61,7 +56,11 @@ pub use error::VisoError;
 pub use gpu::render_context::RenderContext;
 pub use gpu::texture::RenderTarget;
 // Input (optional convenience)
-pub use input::{InputEvent, InputProcessor, KeyBindings, MouseButton};
+pub use input::{
+    classify_click_for_selection, ClickEvent, ClickPattern,
+    ClickSelectionAction, InputEvent, KeyAction, KeyBindings, Modifiers,
+    MouseButton,
+};
 pub use molex;
 // Display overrides + drawing mode enums
 pub use options::{DisplayOverrides, DrawingMode, HelixStyle, SheetStyle};

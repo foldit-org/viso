@@ -1,3 +1,13 @@
+//! Internal click-pattern classifier and drag-detection state.
+//!
+//! Tracks mouse-down/-up sequences, multi-click timing, and drag
+//! detection to produce a `ClickResult` describing what (if
+//! anything) the gesture resolved to. Consumers see this only
+//! indirectly through the [`ClickEvent`](crate::input::ClickEvent)
+//! produced by [`VisoEngine::feed_pointer_button`].
+//!
+//! [`VisoEngine::feed_pointer_button`]: crate::VisoEngine::feed_pointer_button
+
 use std::time::Duration;
 
 use web_time::Instant;
@@ -14,22 +24,16 @@ pub(crate) enum ClickResult {
     SingleClick {
         /// The pick target that was clicked.
         target: PickTarget,
-        /// Whether shift was held during the click.
-        shift_held: bool,
     },
     /// Double-click on a target — select secondary structure segment.
     DoubleClick {
         /// The pick target that was double-clicked.
         target: PickTarget,
-        /// Whether shift was held during the click.
-        shift_held: bool,
     },
     /// Triple-click on a target — select entire chain.
     TripleClick {
         /// The pick target that was triple-clicked.
         target: PickTarget,
-        /// Whether shift was held during the click.
-        shift_held: bool,
     },
     /// Clicked on background — clear selection.
     ClearSelection,
@@ -95,11 +99,9 @@ impl InputState {
     /// Process a mouse-up event and return what kind of click happened.
     ///
     /// `target` is the pick target under cursor at release time.
-    /// `shift_held` is the current shift key state.
     pub(crate) fn process_mouse_up(
         &mut self,
         target: PickTarget,
-        shift_held: bool,
     ) -> ClickResult {
         let mouse_up_target = target;
         let mouse_down_target = self.mouse_down_target;
@@ -136,15 +138,12 @@ impl InputState {
             match self.click_count {
                 3 => ClickResult::TripleClick {
                     target: mouse_up_target,
-                    shift_held,
                 },
                 2 => ClickResult::DoubleClick {
                     target: mouse_up_target,
-                    shift_held,
                 },
                 _ => ClickResult::SingleClick {
                     target: mouse_up_target,
-                    shift_held,
                 },
             }
         } else if mouse_down_target.is_none() && mouse_up_target.is_none() {

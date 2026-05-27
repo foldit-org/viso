@@ -450,8 +450,11 @@ impl VisoEngine {
         }
     }
 
-    /// Set visibility for every entity of a given molecule type.
-    pub(crate) fn set_type_visibility(
+    /// Set visibility for every entity of a given molecule type. This
+    /// is the low-level helper; the public toggle that also syncs the
+    /// matching `options.display.show_*` flag and re-syncs the scene
+    /// is [`Self::set_type_visibility`].
+    pub(crate) fn apply_type_visibility(
         &mut self,
         mol_type: MoleculeType,
         visible: bool,

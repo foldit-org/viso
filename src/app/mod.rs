@@ -22,6 +22,8 @@ pub mod viewer;
 #[cfg(feature = "gui")]
 pub mod gui;
 
+mod selection;
+
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 pub mod web;
 
@@ -30,6 +32,7 @@ use std::sync::Arc;
 
 use molex::ops::edit::AssemblyEdit;
 use molex::{Assembly, MoleculeEntity, MoleculeType, SSType};
+pub use selection::SelectionStore;
 
 use crate::animation::transition::Transition;
 use crate::error::VisoError;

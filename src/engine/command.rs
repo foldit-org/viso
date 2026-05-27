@@ -1,12 +1,12 @@
-//! The engine's complete interactive vocabulary.
+//! Structural reference types for atom-anchored constraints (bands +
+//! pull).
 //!
-//! Every user-facing operation — whether triggered by a key press, mouse
-//! gesture, GUI button, or programmatic call — is represented as an
-//! `VisoCommand`.  Consumers construct commands and pass them to
-//! [`VisoEngine::execute`](super::VisoEngine::execute).
+//! Bands and pulls anchor to atoms by structural reference
+//! ([`crate::engine::command::AtomRef`]) rather than world-space
+//! positions. The engine resolves the positions every frame so the
+//! renderable geometry tracks animated atoms.
 
-use glam::{Vec2, Vec3};
-use molex::MoleculeType;
+use glam::Vec3;
 
 // ── Constraint payload types ────────────────────────────────────────────
 
@@ -119,146 +119,4 @@ pub(crate) struct ResolvedPull {
     pub(crate) target_pos: Vec3,
     /// Residue index for picking.
     pub(crate) residue_idx: u32,
-}
-
-// ── Commands ─────────────────────────────────────────────────────────────
-
-/// A discrete or parameterized operation the engine can perform.
-///
-/// This is the single, centralized description of what the engine can do
-/// interactively.  The engine never cares *how* a command was triggered —
-/// keyboard, mouse, GUI, or API all look identical:
-///
-/// ```ignore
-/// engine.execute(VisoCommand::SetTypeVisibility {
-///     mol_type: molex::MoleculeType::Water,
-///     visible: None,
-/// });
-/// engine.execute(VisoCommand::Zoom { delta: 1.0 });
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum VisoCommand {
-    // ── Camera ──────────────────────────────────────────────────────
-    /// Animate the camera to fit the currently focused element.
-    RecenterCamera,
-
-    /// Toggle turntable auto-rotation around the current up axis.
-    ToggleAutoRotate,
-
-    /// Rotate the camera by `delta` pixels of mouse movement.
-    RotateCamera {
-        /// Horizontal and vertical drag delta.
-        delta: Vec2,
-    },
-
-    /// Pan the camera by `delta` pixels of mouse movement.
-    PanCamera {
-        /// Horizontal and vertical drag delta.
-        delta: Vec2,
-    },
-
-    /// Zoom the camera (positive = zoom in, negative = zoom out).
-    Zoom {
-        /// Scroll amount.
-        delta: f32,
-    },
-
-    // ── Focus ───────────────────────────────────────────────────────
-    /// Cycle focus: Session → Entity₁ → … → EntityN → Session.
-    CycleFocus,
-
-    /// Reset focus to session level (all entities).
-    ResetFocus,
-
-    // ── Playback ────────────────────────────────────────────────────
-    /// Toggle trajectory playback (play / pause).
-    ToggleTrajectory,
-
-    // ── Selection ───────────────────────────────────────────────────
-    /// Clear the current residue selection.
-    ClearSelection,
-
-    /// Select a single residue.
-    SelectResidue {
-        /// Flat residue index.
-        index: i32,
-        /// If true, add to / toggle in the existing selection (shift-click).
-        extend: bool,
-    },
-
-    /// Select all residues in the same secondary-structure segment.
-    SelectSegment {
-        /// Any residue in the target segment.
-        index: i32,
-        /// If true, add to the existing selection.
-        extend: bool,
-    },
-
-    /// Select all residues in the same chain.
-    SelectChain {
-        /// Any residue in the target chain.
-        index: i32,
-        /// If true, add to the existing selection.
-        extend: bool,
-    },
-
-    // ── Entity management ─────────────────────────────────────────
-    /// Focus a specific entity by ID and fit the camera to it.
-    FocusEntity {
-        /// Entity identifier.
-        id: u32,
-    },
-
-    /// Toggle visibility of a specific entity.
-    ToggleEntityVisibility {
-        /// Entity identifier.
-        id: u32,
-    },
-
-    /// Remove a specific entity from the scene.
-    RemoveEntity {
-        /// Entity identifier.
-        id: u32,
-    },
-
-    // ── Display toggles ──────────────────────────────────────────
-    /// Set per-molecule-type visibility.
-    ///
-    /// Currently meaningful for [`MoleculeType::Ion`],
-    /// [`MoleculeType::Water`], and [`MoleculeType::Solvent`] — the
-    /// engine flips the matching `options.display.show_*` flag and
-    /// propagates visibility to every entity of that type. Other
-    /// molecule types are accepted but no-op.
-    SetTypeVisibility {
-        /// Molecule type to retarget.
-        mol_type: MoleculeType,
-        /// `Some(true)` to show, `Some(false)` to hide, `None` to toggle.
-        visible: Option<bool>,
-    },
-
-    /// Cycle lipid display mode (coarse ↔ ball-and-stick).
-    CycleLipidMode,
-}
-
-/// What changed as a result of [`super::VisoEngine::execute`].
-///
-/// Callers that only care about a single bit of feedback (e.g. "did
-/// the selection change?") can `matches!` on the relevant variant. The
-/// enum is exhaustive — every command produces exactly one outcome.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommandOutcome {
-    /// Nothing observable changed (camera-only manipulation, redundant
-    /// selection, clearing an empty selection, etc.).
-    NoEffect,
-    /// The residue selection changed.
-    SelectionChanged,
-    /// Per-entity or per-type visibility changed.
-    VisibilityChanged,
-    /// The focus target changed.
-    FocusChanged,
-    /// A command requiring upstream coordination (e.g.
-    /// [`VisoCommand::RemoveEntity`]) was dispatched directly to
-    /// [`super::VisoEngine::execute`] instead of routing through
-    /// [`crate::VisoApp`]. The engine logs a warning and ignores it.
-    Unhandled,
 }
