@@ -183,9 +183,13 @@ impl SyncPipeline {
         animation.merge_pending_transitions(entity_transitions);
 
         let generation = gpu.scene_processor.next_generation();
+        let entity_ids: rustc_hash::FxHashSet<EntityId> =
+            request_entities.iter().map(|e| e.id).collect();
+        let topology_generation =
+            gpu.scene_processor.advance_topology_generation(entity_ids);
         log::debug!(
             "submit_full_rebuild: submitting FullRebuild gen={generation}, \
-             entity_count={}",
+             topology_gen={topology_generation}, entity_count={}",
             request_entities.len(),
         );
         gpu.scene_processor
@@ -196,6 +200,7 @@ impl SyncPipeline {
                 geometry: options.resolved_geometry(),
                 entity_options,
                 generation,
+                topology_generation,
             })));
     }
 

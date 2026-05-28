@@ -81,6 +81,14 @@ pub(crate) struct SceneProcessor {
     /// each time a `FullRebuild` is submitted. Animation frame results
     /// with a lower generation are discarded as stale.
     rebuild_generation: u64,
+    /// Topology generation. Advances only when the visible entity-id set
+    /// changes (entity added or removed), NOT on every submit. A rebuild
+    /// built for the current topology generation is applied even if
+    /// same-topology submits have since bumped `rebuild_generation`.
+    topology_generation: u64,
+    /// Visible entity-id set of the most recent submit, used to detect
+    /// topology changes that advance `topology_generation`.
+    last_entity_ids: FxHashSet<EntityId>,
     /// True between `FullRebuild` submission and `PreparedRebuild`
     /// consumption. While set, the backbone renderer's cached chains are
     /// stale — LOD must not read them.
@@ -109,6 +117,8 @@ impl SceneProcessor {
             anim_result: anim_output,
             worker,
             rebuild_generation: 0,
+            topology_generation: 0,
+            last_entity_ids: FxHashSet::default(),
             rebuild_pending: false,
         })
     }
@@ -129,6 +139,32 @@ impl SceneProcessor {
         self.rebuild_generation
     }
 
+    /// Current topology generation counter. Advances only when the
+    /// visible entity-id set changes; used to stamp animation frames so a
+    /// same-topology coordinate stream does not discard them.
+    pub(crate) fn topology_generation(&self) -> u64 {
+        self.topology_generation
+    }
+
+    /// Return the topology generation for a submit covering `entity_ids`,
+    /// advancing it first if the set differs from the previous submit's.
+    ///
+    /// A coordinate-only resubmit (same entity-id set, new positions)
+    /// keeps the topology generation steady; an entity add/remove bumps
+    /// it. The returned value is stamped onto the submitted body so the
+    /// consumer can tell whether a built rebuild still matches the live
+    /// scene.
+    pub(crate) fn advance_topology_generation(
+        &mut self,
+        entity_ids: FxHashSet<EntityId>,
+    ) -> u64 {
+        if entity_ids != self.last_entity_ids {
+            self.topology_generation += 1;
+            self.last_entity_ids = entity_ids;
+        }
+        self.topology_generation
+    }
+
     /// Submit a scene request (non-blocking send).
     pub(crate) fn submit(&self, request: SceneRequest) {
         let _ = self.request_tx.send(request);
@@ -136,9 +172,12 @@ impl SceneProcessor {
 
     /// Non-blocking check for a completed full rebuild.
     ///
-    /// Discards results whose generation is older than the current
-    /// rebuild generation, preventing stale geometry from a previous
-    /// structure from being uploaded after `replace_scene()`.
+    /// Discards a result only when its topology generation is behind the
+    /// current one, i.e. the visible entity-id set changed since it was
+    /// built (a stale structure after `replace_scene()`). A rebuild built
+    /// for the current topology is applied even when newer same-topology
+    /// submits have since bumped the per-submit `rebuild_generation`;
+    /// those resubmits supersede it on their own arrival.
     ///
     /// Clears `rebuild_pending` on successful consumption so that LOD
     /// submission (gated by [`Self::is_rebuild_pending`]) resumes with
@@ -146,19 +185,19 @@ impl SceneProcessor {
     pub(crate) fn try_recv_rebuild(&mut self) -> Option<PreparedRebuild> {
         let _ = self.rebuild_result.update();
         let prepared = self.rebuild_result.output_buffer_mut().take()?;
-        if prepared.generation < self.rebuild_generation {
+        if prepared.topology_generation < self.topology_generation {
             log::debug!(
-                "try_recv_rebuild: DISCARDING stale rebuild (gen {} < current \
-                 {})",
-                prepared.generation,
-                self.rebuild_generation,
+                "try_recv_rebuild: DISCARDING stale rebuild (topology gen {} \
+                 < current {})",
+                prepared.topology_generation,
+                self.topology_generation,
             );
             return None;
         }
         log::debug!(
-            "try_recv_rebuild: ACCEPTED rebuild gen={} (current={})",
-            prepared.generation,
-            self.rebuild_generation,
+            "try_recv_rebuild: ACCEPTED rebuild topology_gen={} (current={})",
+            prepared.topology_generation,
+            self.topology_generation,
         );
         self.rebuild_pending = false;
         Some(prepared)
@@ -176,21 +215,23 @@ impl SceneProcessor {
 
     /// Non-blocking check for completed animation frame.
     ///
-    /// Discards frames whose generation is older than the current
-    /// rebuild generation. As soon as a new `FullRebuild` is submitted
-    /// (bumping `rebuild_generation`), all prior animation frames
-    /// become stale — even before the rebuild result arrives on the
-    /// main thread.
+    /// Discards a frame only when its topology generation is behind the
+    /// current one, i.e. the visible entity-id set changed since it was
+    /// built. A frame built for the current topology survives even when
+    /// newer same-topology coordinate rebuilds have bumped the per-submit
+    /// `rebuild_generation`; the latest-wins triple buffer already heads
+    /// the newest frame toward the newest target.
     pub(crate) fn try_recv_animation(
         &mut self,
     ) -> Option<PreparedAnimationFrame> {
         let _ = self.anim_result.update();
         let prepared = self.anim_result.output_buffer_mut().take()?;
-        if prepared.generation < self.rebuild_generation {
+        if prepared.topology_generation < self.topology_generation {
             log::debug!(
-                "Discarding stale animation frame (gen {} < current {})",
-                prepared.generation,
-                self.rebuild_generation,
+                "Discarding stale animation frame (topology gen {} < current \
+                 {})",
+                prepared.topology_generation,
+                self.topology_generation,
             );
             return None;
         }
@@ -211,8 +252,10 @@ impl SceneProcessor {
         mut anim_input: triple_buffer::Input<Option<PreparedAnimationFrame>>,
     ) {
         let mut cache = MeshCache::new();
-        // Generation of the last FullRebuild processed on this thread.
-        let mut last_rebuild_generation: u64 = 0;
+        // Topology generation of the last FullRebuild processed on this
+        // thread. Animation frames stamped with an older topology
+        // generation are stale (the entity-id set changed under them).
+        let mut last_topology_generation: u64 = 0;
 
         while let Ok(request) = request_rx.recv() {
             let latest = drain_latest(request, &request_rx);
@@ -227,8 +270,9 @@ impl SceneProcessor {
                         geometry,
                         entity_options,
                         generation,
+                        topology_generation,
                     } = *body;
-                    last_rebuild_generation = generation;
+                    last_topology_generation = topology_generation;
                     cache.cache_stable_data(
                         &entities,
                         &display,
@@ -245,6 +289,7 @@ impl SceneProcessor {
                     let mut prepared =
                         super::mesh_concat::concatenate_meshes(&entity_meshes);
                     prepared.generation = generation;
+                    prepared.topology_generation = topology_generation;
                     rebuild_input.write(Some(prepared));
                 }
                 SceneRequest::AnimationFrame(body) => {
@@ -254,11 +299,12 @@ impl SceneProcessor {
                         per_chain_lod,
                         include_sidechains,
                         generation,
+                        topology_generation,
                     } = *body;
-                    if generation < last_rebuild_generation {
+                    if topology_generation < last_topology_generation {
                         continue;
                     }
-                    let prepared = super::mesh_gen::process_animation_frame(
+                    let mut prepared = super::mesh_gen::process_animation_frame(
                         &super::mesh_gen::AnimationFrameInput {
                             positions: &positions,
                             cache: &cache.anim_cache,
@@ -268,6 +314,7 @@ impl SceneProcessor {
                         },
                         generation,
                     );
+                    prepared.topology_generation = topology_generation;
                     anim_input.write(Some(prepared));
                 }
             }

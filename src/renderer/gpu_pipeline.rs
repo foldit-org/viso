@@ -256,6 +256,9 @@ impl GpuPipeline {
                     per_chain_lod: None,
                     include_sidechains,
                     generation: self.scene_processor.generation(),
+                    topology_generation: self
+                        .scene_processor
+                        .topology_generation(),
                 },
             )));
     }
@@ -318,6 +321,9 @@ impl GpuPipeline {
                     per_chain_lod: Some(per_chain_lod),
                     include_sidechains: false,
                     generation: self.scene_processor.generation(),
+                    topology_generation: self
+                        .scene_processor
+                        .topology_generation(),
                 },
             )));
     }

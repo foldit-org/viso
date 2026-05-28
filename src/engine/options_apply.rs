@@ -238,11 +238,11 @@ impl VisoEngine {
                 &self.surface_regen,
             );
         }
-        // Single final sync. Any mesh / color invalidation needs the
-        // scene submitted once.
-        if inv.contains(RenderInvalidation::RE_MESH)
-            || inv.contains(RenderInvalidation::RE_COLOR)
-        {
+        // Single final sync for geometry changes only. A color-only
+        // invalidation already uploaded its result in the `RE_COLOR`
+        // arm above (`recompute_backbone_colors` writes the per-residue
+        // color buffer directly), so it must not submit a scene rebuild.
+        if inv.contains(RenderInvalidation::RE_MESH) {
             self.sync_scene_to_renderers(HashMap::new());
         }
     }
@@ -288,9 +288,10 @@ impl VisoEngine {
                 &self.surface_regen,
             );
         }
-        if inv.contains(RenderInvalidation::RE_MESH)
-            || inv.contains(RenderInvalidation::RE_COLOR)
-        {
+        // Geometry changes need a scene resubmit; a color-only change
+        // already uploaded its colors in the `RE_COLOR` arm above and
+        // must not trigger a full rebuild.
+        if inv.contains(RenderInvalidation::RE_MESH) {
             self.sync_scene_to_renderers(HashMap::new());
         }
     }

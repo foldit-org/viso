@@ -121,8 +121,14 @@ pub(crate) struct FullRebuildBody {
     /// Per-entity resolved display+geometry overrides.
     pub(crate) entity_options:
         FxHashMap<u32, (DisplayOptions, GeometryOptions)>,
-    /// Rebuild generation counter (monotonically increasing).
+    /// Rebuild generation counter (monotonically increasing, bumped on
+    /// every submit). Used for animation-frame staleness.
     pub(crate) generation: u64,
+    /// Topology generation: advances only when the visible entity-id set
+    /// changes (entity added/removed). Carried through so the consumer
+    /// can keep a rebuild whose topology still matches the current scene
+    /// even when newer same-topology submits have bumped `generation`.
+    pub(crate) topology_generation: u64,
 }
 
 /// Body of an animation-frame request, boxed for variant-size balance.
@@ -139,6 +145,11 @@ pub(crate) struct AnimationFrameBody {
     pub(crate) include_sidechains: bool,
     /// Rebuild generation this frame belongs to.
     pub(crate) generation: u64,
+    /// Topology generation this frame belongs to. The consumer discards a
+    /// frame only when this is behind the current topology generation (the
+    /// entity-id set changed since it was built); a newer same-topology
+    /// coordinate rebuild does not invalidate it.
+    pub(crate) topology_generation: u64,
 }
 
 /// Request sent from main thread to scene processor.
@@ -160,6 +171,10 @@ pub(crate) enum SceneRequest {
 pub(crate) struct PreparedRebuild {
     /// Rebuild generation this prepared rebuild was produced for.
     pub(crate) generation: u64,
+    /// Topology generation this rebuild was built for. The consumer
+    /// discards a rebuild only when this is behind the current topology
+    /// generation (the entity-id set changed since it was built).
+    pub(crate) topology_generation: u64,
     /// Backbone mesh data.
     pub(crate) backbone: BackboneMeshData,
     /// Sidechain capsule instance bytes.
@@ -186,8 +201,15 @@ pub(crate) struct PreparedAnimationFrame {
     pub(crate) sidechain_instances: Option<Vec<u8>>,
     /// Number of sidechain capsule instances.
     pub(crate) sidechain_instance_count: u32,
-    /// Rebuild generation this frame was produced for.
+    /// Rebuild generation this frame was produced for. Retained per-submit
+    /// plumbing; the frame's staleness gate keys on `topology_generation`
+    /// rather than this counter.
+    #[allow(dead_code)]
     pub(crate) generation: u64,
+    /// Topology generation this frame was built for. The consumer discards
+    /// a frame only when this is behind the current topology generation
+    /// (the entity-id set changed since it was built).
+    pub(crate) topology_generation: u64,
 }
 
 // ---------------------------------------------------------------------------

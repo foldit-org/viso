@@ -484,12 +484,10 @@ impl VisoEngine {
     ) {
         if let Some(eid) = self.entity_id(id) {
             self.annotations_mut().set_per_residue_scores(eid, scores);
-            // Score colors feed per-residue color buffers; recolor +
-            // remesh so the change shows without waiting for an
-            // unrelated rebuild trigger.
-            self.apply_entity_invalidation(
-                RenderInvalidation::RE_MESH | RenderInvalidation::RE_COLOR,
-            );
+            // Scores feed the per-residue color buffer, not geometry, so
+            // recolor only. The recolor path uploads the new colors to
+            // the GPU on its own without a mesh rebuild.
+            self.apply_entity_invalidation(RenderInvalidation::RE_COLOR);
         }
     }
 

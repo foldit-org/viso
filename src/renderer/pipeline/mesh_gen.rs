@@ -400,6 +400,7 @@ pub(super) fn process_animation_frame(
         sidechain_instances,
         sidechain_instance_count,
         generation,
+        topology_generation: 0,
     }
 }
 
