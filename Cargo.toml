@@ -90,7 +90,7 @@ half = "2"
 naga_oil = "0.19"
 naga = "26"
 
-molex = "0.4.2"
+molex = "0.4.3"
 
 # Cross-platform Instant (delegates to performance.now() on WASM)
 web-time = "1"

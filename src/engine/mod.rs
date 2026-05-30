@@ -34,7 +34,9 @@ use molex::{Assembly, MoleculeEntity};
 use scene::Scene;
 use web_time::Instant;
 
-use crate::animation::AnimationState;
+use crate::animation::{
+    build_animation, Advance, AnimationPlayer, AnimationState,
+};
 use crate::camera;
 use crate::camera::controller::CameraController;
 use crate::options::VisoOptions;
@@ -240,17 +242,94 @@ impl VisoEngine {
     /// background processor.
     pub fn update(&mut self, dt: f32) {
         let _ = self.camera_controller.update_animation(dt);
-        // Common path: adopt the latest snapshot and queue its mesh. This
-        // covers everything -- wiggle, relax, streaming frames, plain
-        // coordinate eases. The one exception is a residue mutation, which
-        // animates across its atom-count change as a deferred sequence and
-        // owns snapshot adoption while in flight; `advance_morph` intercepts
-        // that case (and only that case) before the normal path runs.
-        if !self.advance_morph() && self.poll_assembly() {
-            let transitions = self.animation.take_pending_transitions();
-            self.sync_scene_to_renderers(transitions);
+        let now = Instant::now();
+
+        // A newer publish arriving mid-play coalesces to the latest target:
+        // re-aim while still collapsing/easing (or on a plain ease) by
+        // dropping the player so it rebuilds toward the latest below; but
+        // let an in-flight expand finish before starting fresh.
+        if self.has_new_pending()
+            && self
+                .animation
+                .player
+                .as_ref()
+                .is_some_and(|p| !p.past_adopt())
+        {
+            self.animation.player = None;
         }
+
+        // Begin a new sequence from a freshly published snapshot.
+        if self.animation.player.is_none() {
+            self.begin_pending_animation();
+        }
+
+        // Drive the in-flight sequence from the single call site.
+        if let Some(mut player) = self.animation.player.take() {
+            match player.advance(&mut self.animation.animator, &self.scene, now)
+            {
+                Advance::Running => self.animation.player = Some(player),
+                Advance::Adopt(b) => {
+                    // Adopt B via the normal rebuild path, then re-collapse
+                    // the mutated sidechains so the expand grows them out.
+                    self.scene.pending = Some(b);
+                    let _ = self.poll_assembly();
+                    player.seed_adopted(&mut self.scene);
+                    let transitions = self.animation.take_pending_transitions();
+                    self.sync_scene_to_renderers(transitions);
+                    self.animation.player = Some(player);
+                }
+                Advance::Done => {}
+            }
+        }
+
         self.apply_pending_scene();
+    }
+
+    /// Whether a snapshot with an unseen generation is waiting.
+    fn has_new_pending(&self) -> bool {
+        self.scene
+            .pending
+            .as_ref()
+            .is_some_and(|p| p.generation() != self.scene.last_seen_generation)
+    }
+
+    /// Build and start an animation from the pending snapshot, if one is
+    /// waiting. A same-topology change adopts B up front (a same-length
+    /// adopt keeps the current positions) so the player's ease animates the
+    /// kept positions toward B's coords; a topology-changing mutation defers
+    /// adoption to the `AdoptTarget` waypoint and leaves the scene on A until
+    /// then. `None` from the builder (a residue insert/delete, or no
+    /// movement) snaps via the normal adopt.
+    fn begin_pending_animation(&mut self) {
+        if !self.has_new_pending() {
+            return;
+        }
+        let Some(pending) = self.scene.pending.clone() else {
+            return;
+        };
+        match build_animation(self.scene.current.as_ref(), &pending) {
+            None => {
+                // Snap: adopt + rebuild via the normal path.
+                if self.poll_assembly() {
+                    let transitions = self.animation.take_pending_transitions();
+                    self.sync_scene_to_renderers(transitions);
+                }
+            }
+            Some(animation) => {
+                let player = AnimationPlayer::new(animation);
+                if player.has_adopt() {
+                    // Defer adoption: the player holds B in its AdoptTarget
+                    // step; consume the pending slot without adopting.
+                    self.scene.pending = None;
+                } else if self.poll_assembly() {
+                    // Same topology: adopt up front (positions kept), then
+                    // the Lerp animates the kept positions toward B.
+                    let transitions = self.animation.take_pending_transitions();
+                    self.sync_scene_to_renderers(transitions);
+                }
+                self.animation.player = Some(player);
+            }
+        }
     }
 
     /// Push a new [`Assembly`] snapshot from the host. The next

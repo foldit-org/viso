@@ -1,11 +1,12 @@
 //! Animation system for smooth structural transitions.
 
 pub(crate) mod animator;
-/// Topology-morph sequencer: deferred collapse/ease/expand for mutations.
-pub(crate) mod morph;
 pub(crate) mod runner;
+/// Structural-delta animation: derive + play a per-publish sequence.
+pub(crate) mod sequence;
 pub(crate) mod state;
 pub(crate) mod transition;
 
 pub(crate) use animator::StructureAnimator;
+pub(crate) use sequence::{build_animation, Advance, AnimationPlayer};
 pub(crate) use state::AnimationState;

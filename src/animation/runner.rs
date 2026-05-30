@@ -165,22 +165,6 @@ mod tests {
     }
 
     #[test]
-    fn three_phase_eased_t() {
-        // Backbone-fixed morph (ease = 0): collapse [0, 0.4), expand
-        // [0.4, 1.0]; the boundary sits at the global lerp value 0.4.
-        let transition = Transition::collapse_ease_expand(
-            Duration::from_millis(200),
-            Duration::ZERO,
-            Duration::from_millis(300),
-        );
-        let runner = AnimationRunner::new(&transition);
-
-        assert!((runner.eased_t(0.0) - 0.0).abs() < 0.01);
-        assert!((runner.eased_t(1.0) - 1.0).abs() < 0.01);
-        assert!((runner.eased_t(0.4) - 0.4).abs() < 0.01);
-    }
-
-    #[test]
     fn should_include_sidechains() {
         use crate::util::easing::EasingFunction;
 
@@ -206,7 +190,6 @@ mod tests {
             name: "test-hidden-then-shown",
             allows_size_change: false,
             suppress_initial_sidechains: true,
-            morphs_topology: false,
         };
         let runner = AnimationRunner::new(&transition);
 
