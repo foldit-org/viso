@@ -29,6 +29,12 @@ pub(crate) struct AnimationState {
     /// `queue_entity_transition` / `clear_pending_transitions` on
     /// [`crate::VisoEngine`].
     pending_transitions: HashMap<u32, Transition>,
+    /// In-flight topology-morph sequence, when a mutation is mid-animation.
+    /// `Some` only between the start of a deferred collapse/ease/expand and
+    /// its swap to the new snapshot; dropped on completion. Driven by the
+    /// engine via [`super::morph`]; reset for free with this struct on
+    /// scene reset.
+    pub(crate) morph: Option<super::morph::MorphSequence>,
 }
 
 impl AnimationState {
@@ -38,7 +44,17 @@ impl AnimationState {
             animator: StructureAnimator::new(),
             trajectory_player: None,
             pending_transitions: HashMap::new(),
+            morph: None,
         }
+    }
+
+    /// The staged transition for entity `id`, but only if it is a topology
+    /// morph (the kind the engine drives as a deferred segment sequence).
+    /// Read-only; does not consume the staged transition.
+    pub(crate) fn morph_transition(&self, id: u32) -> Option<&Transition> {
+        self.pending_transitions
+            .get(&id)
+            .filter(|t| t.morphs_topology)
     }
 
     /// Stage a transition for entity `id` on the next sync.

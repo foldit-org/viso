@@ -240,11 +240,13 @@ impl VisoEngine {
     /// background processor.
     pub fn update(&mut self, dt: f32) {
         let _ = self.camera_controller.update_animation(dt);
-        if self.poll_assembly() {
-            // Fresh assembly snapshot consumed: queue mesh generation
-            // for the background processor. Without this, viso-side
-            // derived state would advance but no meshes would be
-            // produced for the new entities.
+        // Common path: adopt the latest snapshot and queue its mesh. This
+        // covers everything -- wiggle, relax, streaming frames, plain
+        // coordinate eases. The one exception is a residue mutation, which
+        // animates across its atom-count change as a deferred sequence and
+        // owns snapshot adoption while in flight; `advance_morph` intercepts
+        // that case (and only that case) before the normal path runs.
+        if !self.advance_morph() && self.poll_assembly() {
             let transitions = self.animation.take_pending_transitions();
             self.sync_scene_to_renderers(transitions);
         }

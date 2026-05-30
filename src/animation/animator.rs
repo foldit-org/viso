@@ -40,6 +40,11 @@ impl StructureAnimator {
         !self.runners.is_empty()
     }
 
+    /// Whether a specific entity currently has an active animation runner.
+    pub(crate) fn is_entity_animating(&self, entity_id: EntityId) -> bool {
+        self.runners.contains_key(&entity_id)
+    }
+
     /// Start or replace the animation for a single entity.
     ///
     /// `start` is the current visible positions (animator's
@@ -64,7 +69,7 @@ impl StructureAnimator {
                 let _ = self.runners.remove(&entity_id);
                 return;
             }
-            // Size-change-aware transition (e.g. collapse_expand for
+            // Size-change-aware transition (e.g. collapse_ease_expand for
             // mutation animations). Positions are already snapped to
             // target by the caller; install a runner so the
             // transition's phases (sidechain-visibility timing) still

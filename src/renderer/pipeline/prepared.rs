@@ -192,26 +192,6 @@ pub(crate) struct PreparedRebuild {
     pub(crate) entity_residue_offsets: Vec<(EntityId, u32)>,
 }
 
-/// Pre-computed animation frame data, ready for GPU upload.
-#[derive(Clone)]
-pub(crate) struct PreparedAnimationFrame {
-    /// Backbone mesh data.
-    pub(crate) backbone: BackboneMeshData,
-    /// Optional sidechain capsule instance bytes.
-    pub(crate) sidechain_instances: Option<Vec<u8>>,
-    /// Number of sidechain capsule instances.
-    pub(crate) sidechain_instance_count: u32,
-    /// Rebuild generation this frame was produced for. Retained per-submit
-    /// plumbing; the frame's staleness gate keys on `topology_generation`
-    /// rather than this counter.
-    #[allow(dead_code)]
-    pub(crate) generation: u64,
-    /// Topology generation this frame was built for. The consumer discards
-    /// a frame only when this is behind the current topology generation
-    /// (the entity-id set changed since it was built).
-    pub(crate) topology_generation: u64,
-}
-
 // ---------------------------------------------------------------------------
 // Per-entity cached mesh
 // ---------------------------------------------------------------------------

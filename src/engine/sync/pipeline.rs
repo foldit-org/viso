@@ -443,7 +443,7 @@ impl SyncPipeline {
                 if !transition.allows_size_change {
                     continue;
                 }
-                // For size-change-aware transitions (collapse_expand),
+                // For size-change-aware transitions (collapse_ease_expand),
                 // still install a runner so the phase timeline (which
                 // controls sidechain visibility) plays through.
             }

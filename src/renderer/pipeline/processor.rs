@@ -8,19 +8,18 @@
 //! being regenerated. Global settings changes (view mode, display,
 //! colors) clear the entire cache.
 
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 
 use molex::entity::molecule::id::EntityId;
-use molex::SSType;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::mesh_gen::{AnimationFrameCache, EntityMetaSnapshot};
 use super::prepared::{
     AnimationFrameBody, CachedEntityMesh, FullRebuildBody, FullRebuildEntity,
-    PreparedAnimationFrame, PreparedRebuild, SceneRequest,
+    PreparedRebuild, SceneRequest,
 };
+use crate::engine::positions::EntityPositions;
 use crate::options::{
-    ColorOptions, DisplayOptions, DrawingMode, GeometryOptions, NaColorMode,
+    ChainLod, ColorOptions, DisplayOptions, DrawingMode, GeometryOptions,
 };
 
 // ---------------------------------------------------------------------------
@@ -75,7 +74,7 @@ fn join_background(handle: &mut WorkerHandle) {
 pub(crate) struct SceneProcessor {
     request_tx: mpsc::Sender<SceneRequest>,
     rebuild_result: triple_buffer::Output<Option<PreparedRebuild>>,
-    anim_result: triple_buffer::Output<Option<PreparedAnimationFrame>>,
+    anim_result: triple_buffer::Output<Option<PreparedRebuild>>,
     worker: WorkerHandle,
     /// Monotonically increasing rebuild generation counter. Bumped
     /// each time a `FullRebuild` is submitted. Animation frame results
@@ -221,9 +220,7 @@ impl SceneProcessor {
     /// newer same-topology coordinate rebuilds have bumped the per-submit
     /// `rebuild_generation`; the latest-wins triple buffer already heads
     /// the newest frame toward the newest target.
-    pub(crate) fn try_recv_animation(
-        &mut self,
-    ) -> Option<PreparedAnimationFrame> {
+    pub(crate) fn try_recv_animation(&mut self) -> Option<PreparedRebuild> {
         let _ = self.anim_result.update();
         let prepared = self.anim_result.output_buffer_mut().take()?;
         if prepared.topology_generation < self.topology_generation {
@@ -249,7 +246,7 @@ impl SceneProcessor {
     fn thread_loop(
         request_rx: mpsc::Receiver<SceneRequest>,
         mut rebuild_input: triple_buffer::Input<Option<PreparedRebuild>>,
-        mut anim_input: triple_buffer::Input<Option<PreparedAnimationFrame>>,
+        mut anim_input: triple_buffer::Input<Option<PreparedRebuild>>,
     ) {
         let mut cache = MeshCache::new();
         // Topology generation of the last FullRebuild processed on this
@@ -273,12 +270,7 @@ impl SceneProcessor {
                         topology_generation,
                     } = *body;
                     last_topology_generation = topology_generation;
-                    cache.cache_stable_data(
-                        &entities,
-                        &display,
-                        &colors,
-                        &entity_options,
-                    );
+                    cache.cache_stable_data(&entities, &entity_options);
                     let entity_meshes = cache.update(
                         &entities,
                         &display,
@@ -304,16 +296,13 @@ impl SceneProcessor {
                     if topology_generation < last_topology_generation {
                         continue;
                     }
-                    let mut prepared = super::mesh_gen::process_animation_frame(
-                        &super::mesh_gen::AnimationFrameInput {
-                            positions: &positions,
-                            cache: &cache.anim_cache,
-                            geometry: &geometry,
-                            per_chain_lod: per_chain_lod.as_deref(),
-                            include_sidechains,
-                        },
-                        generation,
+                    let mut prepared = cache.regenerate_for_animation(
+                        &positions,
+                        &geometry,
+                        per_chain_lod.as_deref(),
+                        include_sidechains,
                     );
+                    prepared.generation = generation;
                     prepared.topology_generation = topology_generation;
                     anim_input.write(Some(prepared));
                 }
@@ -330,15 +319,25 @@ impl Drop for SceneProcessor {
 
 /// Per-entity mesh cache with settings-based invalidation.
 ///
-/// Caches per-entity geometry keyed on [`EntityId`], plus an
-/// [`AnimationFrameCache`] snapshot so `AnimationFrame` requests can be
-/// regenerated using only derived state and interpolated positions.
+/// Caches per-entity geometry keyed on [`EntityId`], plus the last
+/// rebuild's per-entity inputs ([`MeshCache::last_entities`]) so
+/// `AnimationFrame` requests can regenerate every entity's mesh -- through
+/// every drawing mode -- from interpolated positions alone.
 struct MeshCache {
     meshes: FxHashMap<EntityId, (u64, CachedEntityMesh)>,
     last_display: Option<DisplayOptions>,
     last_colors: Option<ColorOptions>,
     last_geometry: Option<GeometryOptions>,
-    anim_cache: AnimationFrameCache,
+    /// Per-entity rebuild inputs from the last `FullRebuild`, retained so
+    /// an `AnimationFrame` can regenerate every entity's mesh -- through
+    /// every drawing mode -- from interpolated positions, using the same
+    /// per-entity derivation the rebuild path uses. Positions on these
+    /// snapshots are stale (the live ones arrive per frame); everything
+    /// else (topology, drawing mode, colors, SS) is reused as-is.
+    last_entities: Vec<FullRebuildEntity>,
+    /// Per-entity display+geometry overrides captured at the last
+    /// `FullRebuild`, parallel to [`Self::last_entities`].
+    last_entity_options: FxHashMap<u32, (DisplayOptions, GeometryOptions)>,
 }
 
 impl MeshCache {
@@ -348,101 +347,116 @@ impl MeshCache {
             last_display: None,
             last_colors: None,
             last_geometry: None,
-            anim_cache: AnimationFrameCache {
-                topologies: FxHashMap::default(),
-                entity_meta: FxHashMap::default(),
-                cartoon_ss_types: None,
-                cartoon_per_residue_colors: None,
-                cartoon_na_base_colors: None,
-                sidechain_palette: ([1.0, 1.0, 1.0], [0.5, 0.5, 0.5]),
-                entity_order: Vec::new(),
-            },
+            last_entities: Vec::new(),
+            last_entity_options: FxHashMap::default(),
         }
     }
 
-    /// Cache stable per-scene data so animation frames can regenerate
-    /// backbone / sidechain meshes without re-sending topology.
+    /// Retain the per-entity rebuild inputs so subsequent
+    /// `AnimationFrame`s can regenerate meshes from interpolated positions
+    /// through the same per-entity derivation as the rebuild. No drawing
+    /// mode is privileged here -- the retained snapshot carries every
+    /// entity's topology, drawing mode, colors, and SS as-is.
     fn cache_stable_data(
         &mut self,
         entities: &[FullRebuildEntity],
-        display: &DisplayOptions,
-        colors: &ColorOptions,
         entity_options: &FxHashMap<u32, (DisplayOptions, GeometryOptions)>,
     ) {
-        self.anim_cache.topologies.clear();
-        self.anim_cache.entity_meta.clear();
-        self.anim_cache.entity_order.clear();
-        self.anim_cache.sidechain_palette =
-            (colors.hydrophobic_sidechain, colors.hydrophilic_sidechain);
-        for e in entities {
-            let _ = self
-                .anim_cache
-                .topologies
-                .insert(e.id, Arc::clone(&e.topology));
-            let entity_display =
-                entity_options.get(&e.id.raw()).map_or(display, |(d, _)| d);
-            let _ = self.anim_cache.entity_meta.insert(
-                e.id,
-                EntityMetaSnapshot {
-                    drawing_mode: e.drawing_mode,
-                    per_residue_colors: e.per_residue_colors.clone(),
-                    sidechain_color_mode: entity_display.sidechain_color_mode(),
-                },
-            );
-            self.anim_cache.entity_order.push(e.id);
-        }
+        self.last_entities = entities.to_vec();
+        self.last_entity_options.clone_from(entity_options);
+    }
 
-        // SS types: only Cartoon-mode entities contribute, in entity
-        // order. Uses ss_override when present, falls back to
-        // topology.ss_types.
-        let mut ss: Vec<SSType> = Vec::new();
-        for e in entities {
-            if e.drawing_mode != DrawingMode::Cartoon {
-                continue;
-            }
-            if let Some(ovr) = e.ss_override.as_deref() {
-                ss.extend_from_slice(ovr);
+    /// Regenerate every retained entity's mesh from interpolated positions
+    /// and concatenate into a `PreparedRebuild`.
+    ///
+    /// An animation frame is just lerped molecular data, so per-drawing-mode
+    /// geometry is derived the same way the `FullRebuild` derives it -- via
+    /// [`super::mesh_gen::generate_entity_mesh`] per entity. Cartoon,
+    /// ball-and-stick, and nucleic-acid geometry therefore all animate.
+    ///
+    /// `per_chain_lod`, when `Some`, is the global per-chain LOD tier list
+    /// from the camera-distance remesh; it is sliced per entity by each
+    /// entity's cartoon chain count, in the retained entity order (the same
+    /// order [`super::mesh_concat::concatenate_meshes`] stitched the chains
+    /// in). Position-animation frames pass `None`.
+    fn regenerate_for_animation(
+        &self,
+        positions: &EntityPositions,
+        geometry: &GeometryOptions,
+        per_chain_lod: Option<&[ChainLod]>,
+        include_sidechains: bool,
+    ) -> PreparedRebuild {
+        let (Some(display), Some(colors)) =
+            (self.last_display.as_ref(), self.last_colors.as_ref())
+        else {
+            // No rebuild has populated the cache yet; nothing to animate.
+            return super::mesh_concat::concatenate_meshes(&[]);
+        };
+
+        let total_residues: usize = self
+            .last_entities
+            .iter()
+            .map(|e| {
+                let protein = e
+                    .topology
+                    .protein_backbone_layout
+                    .iter()
+                    .map(|s| s.ca.len())
+                    .sum::<usize>();
+                let na = e
+                    .topology
+                    .na_backbone_chain_layout
+                    .iter()
+                    .map(Vec::len)
+                    .sum::<usize>();
+                protein + na
+            })
+            .sum();
+        let geometry = geometry.clamped_for_residues(total_residues);
+
+        let mut meshes: Vec<CachedEntityMesh> =
+            Vec::with_capacity(self.last_entities.len());
+        let mut lod_offset = 0usize;
+        for e in &self.last_entities {
+            // Only Cartoon entities contribute backbone chains (and thus
+            // per-chain LOD slots), in entity order; advance the offset by
+            // this entity's chain count so the slice stays aligned with the
+            // concatenated chain stream the remesh built `per_chain_lod` from.
+            let chain_count = if e.drawing_mode == DrawingMode::Cartoon {
+                e.topology.protein_backbone_layout.len()
+                    + e.topology.na_backbone_chain_layout.len()
             } else {
-                ss.extend_from_slice(&e.topology.ss_types);
-            }
-        }
-        self.anim_cache.cartoon_ss_types =
-            if ss.is_empty() { None } else { Some(ss) };
+                0
+            };
+            let entity_lod = per_chain_lod
+                .and_then(|all| all.get(lod_offset..lod_offset + chain_count));
+            lod_offset += chain_count;
 
-        // Per-residue colors: only Cartoon-mode entities contribute.
-        let mut colors: Vec<[f32; 3]> = Vec::new();
-        for e in entities {
-            if e.drawing_mode != DrawingMode::Cartoon {
-                continue;
-            }
-            if let Some(c) = e.per_residue_colors.as_deref() {
-                colors.extend_from_slice(c);
-            }
-        }
-        self.anim_cache.cartoon_per_residue_colors = if colors.is_empty() {
-            None
-        } else {
-            Some(colors)
-        };
+            let (e_display, e_geometry) =
+                self.last_entity_options.get(&e.id.raw()).map_or_else(
+                    || (display, geometry.clone()),
+                    |(d, g)| (d, g.clamped_for_residues(total_residues)),
+                );
 
-        // NA base colors: only Cartoon-mode NA entities contribute when
-        // BaseColor mode is active.
-        let mut na_colors: Vec<[f32; 3]> = Vec::new();
-        if display.na_color_mode() == NaColorMode::BaseColor {
-            for e in entities {
-                if e.drawing_mode != DrawingMode::Cartoon
-                    || !e.topology.is_nucleic_acid()
-                {
-                    continue;
-                }
-                na_colors.extend_from_slice(&e.topology.na_residue_base_colors);
+            let mut entity = e.clone();
+            if let Some(p) = positions.get(e.id) {
+                entity.positions = p.to_vec();
             }
+            let mut mesh = super::mesh_gen::generate_entity_mesh(
+                &entity,
+                e_display,
+                colors,
+                &e_geometry,
+                entity_lod,
+            );
+            if !include_sidechains {
+                mesh.sidechain_instances.clear();
+                mesh.sidechain_instance_count = 0;
+            }
+            meshes.push(mesh);
         }
-        self.anim_cache.cartoon_na_base_colors = if na_colors.is_empty() {
-            None
-        } else {
-            Some(na_colors)
-        };
+        let refs: Vec<&CachedEntityMesh> = meshes.iter().collect();
+        super::mesh_concat::concatenate_meshes(&refs)
     }
 
     /// Update cached meshes and return entity-ordered references for
@@ -509,6 +523,7 @@ impl MeshCache {
                     e_display,
                     colors,
                     &e_geometry,
+                    None,
                 );
                 drop(self.meshes.insert(e.id, (e.mesh_version, mesh)));
             }

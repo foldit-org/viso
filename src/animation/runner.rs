@@ -165,9 +165,12 @@ mod tests {
     }
 
     #[test]
-    fn two_phase_eased_t() {
-        let transition = Transition::collapse_expand(
+    fn three_phase_eased_t() {
+        // Backbone-fixed morph (ease = 0): collapse [0, 0.4), expand
+        // [0.4, 1.0]; the boundary sits at the global lerp value 0.4.
+        let transition = Transition::collapse_ease_expand(
             Duration::from_millis(200),
+            Duration::ZERO,
             Duration::from_millis(300),
         );
         let runner = AnimationRunner::new(&transition);
@@ -179,10 +182,32 @@ mod tests {
 
     #[test]
     fn should_include_sidechains() {
-        let transition = Transition::backbone_then_expand(
-            Duration::from_millis(300),
-            Duration::from_millis(200),
-        );
+        use crate::util::easing::EasingFunction;
+
+        // A transition whose first phase hides sidechains and whose second
+        // shows them, exercising the runner's per-phase visibility gate.
+        let transition = Transition {
+            phases: vec![
+                AnimationPhase {
+                    easing: EasingFunction::QuadraticOut,
+                    duration: Duration::from_millis(300),
+                    lerp_start: 0.0,
+                    lerp_end: 1.0,
+                    include_sidechains: false,
+                },
+                AnimationPhase {
+                    easing: EasingFunction::Linear,
+                    duration: Duration::from_millis(200),
+                    lerp_start: 1.0,
+                    lerp_end: 1.0,
+                    include_sidechains: true,
+                },
+            ],
+            name: "test-hidden-then-shown",
+            allows_size_change: false,
+            suppress_initial_sidechains: true,
+            morphs_topology: false,
+        };
         let runner = AnimationRunner::new(&transition);
 
         assert!(!runner.should_include_sidechains(0.0));

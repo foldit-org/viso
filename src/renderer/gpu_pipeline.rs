@@ -220,21 +220,40 @@ impl GpuPipeline {
             prepared.backbone,
         );
 
-        if let Some(ref instances) = prepared.sidechain_instances {
-            let reallocated = self.renderers.sidechain.apply_prepared(
+        let reallocated = self.renderers.sidechain.apply_prepared(
+            &self.context.device,
+            &self.context.queue,
+            &prepared.sidechain_instances,
+            prepared.sidechain_instance_count,
+        );
+        if reallocated {
+            self.pick.groups.rebuild_capsule(
+                &self.pick.picking,
                 &self.context.device,
-                &self.context.queue,
-                instances,
-                prepared.sidechain_instance_count,
+                &self.renderers.sidechain,
             );
-            if reallocated {
-                self.pick.groups.rebuild_capsule(
-                    &self.pick.picking,
-                    &self.context.device,
-                    &self.renderers.sidechain,
-                );
-            }
         }
+
+        // Ball-and-stick + nucleic-acid geometry is derived from the same
+        // interpolated positions, so non-cartoon entities animate too. The
+        // pick map is not rebuilt per frame: instance counts are stable
+        // within an animation (a mutation's atom-count change rides a real
+        // rebuild/adoption, not a frame), so the existing map stays valid.
+        self.renderers.ball_and_stick.apply_prepared(
+            &self.context.device,
+            &self.context.queue,
+            &PreparedBallAndStickData {
+                sphere_bytes: &prepared.bns.sphere_instances,
+                sphere_count: prepared.bns.sphere_count,
+                capsule_bytes: &prepared.bns.capsule_instances,
+                capsule_count: prepared.bns.capsule_count,
+            },
+        );
+        self.renderers.nucleic_acid.apply_prepared(
+            &self.context.device,
+            &self.context.queue,
+            &prepared.na,
+        );
 
         true
     }
