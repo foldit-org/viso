@@ -198,6 +198,12 @@ impl GpuPipeline {
         self.pick.pick_map = Some(prepared.pick_map.clone());
         self.pick.entity_residue_offsets =
             prepared.entity_residue_offsets.iter().copied().collect();
+        // The flat selection bitset is keyed by global residue index, which
+        // shifts whenever the offsets table is rebuilt. Re-derive it from the
+        // per-entity selection against the fresh offsets so the highlight
+        // stays pinned to the selected residues across rebuilds (the
+        // per-frame `update_selection_buffer` uploads the refreshed cache).
+        self.pick.rederive_selection();
         self.pick.groups.rebuild_all(
             &self.pick.picking,
             &self.context.device,

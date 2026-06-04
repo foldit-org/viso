@@ -7,7 +7,7 @@ mod pick_map;
 mod pipeline;
 pub(crate) mod state;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use molex::entity::molecule::id::EntityId;
 use molex::SSType;
@@ -38,6 +38,13 @@ pub(crate) struct PickingSystem {
     /// Each entity's first global residue index in the GPU selection /
     /// per-residue color space. Refreshed on every `upload_prepared`.
     pub(crate) entity_residue_offsets: BTreeMap<EntityId, u32>,
+    /// Per-entity residue selection: the source of truth. The flat GPU
+    /// bitset (`picking.selected_residues`) is a derived cache, re-derived
+    /// from this map against the current `entity_residue_offsets` on every
+    /// selection mutation AND on every mesh rebuild. Keeping the per-entity
+    /// selection here (rather than a pre-flattened vector) makes staleness
+    /// relative to a shifting residue space structurally impossible.
+    pub(crate) selection_per_entity: BTreeMap<EntityId, BTreeSet<u32>>,
 }
 
 impl PickingSystem {
@@ -59,6 +66,7 @@ impl PickingSystem {
             pick_map: None,
             hovered_target: PickTarget::None,
             entity_residue_offsets: BTreeMap::new(),
+            selection_per_entity: BTreeMap::new(),
         })
     }
 
@@ -79,12 +87,45 @@ impl PickingSystem {
     /// Clear the residue selection. Returns `true` if the selection was
     /// non-empty (i.e. it actually changed).
     pub(crate) fn clear_selection(&mut self) -> bool {
-        if self.picking.selected_residues.is_empty() {
+        if self.selection_per_entity.is_empty() {
             false
         } else {
+            self.selection_per_entity.clear();
             self.picking.selected_residues.clear();
             true
         }
+    }
+
+    /// Replace the per-entity residue selection (the source of truth) and
+    /// re-derive the flat GPU bitset cache against the current offsets.
+    /// The derived cache is uploaded by the per-frame
+    /// [`Self::update_selection_buffer`] call.
+    pub(crate) fn set_selection(
+        &mut self,
+        selection: BTreeMap<EntityId, BTreeSet<u32>>,
+    ) {
+        self.selection_per_entity = selection;
+        self.rederive_selection();
+    }
+
+    /// Re-derive the flat `picking.selected_residues` cache from the stored
+    /// per-entity selection against the CURRENT `entity_residue_offsets`.
+    /// Called on every selection mutation AND on every mesh rebuild (when
+    /// the offsets table is overwritten), so the flat bitset can never go
+    /// stale relative to a shifting residue space. Per-entity entries with
+    /// no published offset (e.g. an entity not yet meshed) contribute
+    /// nothing.
+    pub(crate) fn rederive_selection(&mut self) {
+        let mut flat: Vec<i32> = Vec::new();
+        for (eid, residues) in &self.selection_per_entity {
+            let Some(&base) = self.entity_residue_offsets.get(eid) else {
+                continue;
+            };
+            for r in residues {
+                flat.push((base + *r) as i32);
+            }
+        }
+        self.picking.selected_residues = flat;
     }
 
     /// Walk backwards / forwards from `residue_idx` to find the
@@ -239,12 +280,6 @@ impl PickingSystem {
             bns_sphere_bind_group: self.groups.bns_sphere.as_ref(),
             bns_sphere_count: renderers.ball_and_stick.sphere_count(),
         }
-    }
-
-    /// Read-only access to the currently selected residue indices.
-    #[allow(dead_code)] // API surface, not yet called by engine
-    pub(crate) fn selected_residues(&self) -> &[i32] {
-        &self.picking.selected_residues
     }
 
     /// Upload the current selection state to the GPU selection buffer.

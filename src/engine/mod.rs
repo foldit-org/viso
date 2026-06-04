@@ -22,7 +22,7 @@ pub(crate) mod surface_regen;
 mod sync;
 pub(crate) mod trajectory;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use annotations::EntityAnnotations;
@@ -519,12 +519,6 @@ impl VisoEngine {
         self.frame_timing.fps()
     }
 
-    /// Currently selected residue indices.
-    #[must_use]
-    pub fn selected_residues(&self) -> &[i32] {
-        self.gpu.pick.selected_residues()
-    }
-
     /// Read-only access to the current options.
     #[must_use]
     pub fn options(&self) -> &VisoOptions {
@@ -652,19 +646,18 @@ impl VisoEngine {
         self.gpu.cursor_pos = (x, y);
     }
 
-    /// Per-entity first global residue index in the GPU selection /
-    /// per-residue color space. Refreshed on every `FullRebuild`
-    /// upload; empty before the first rebuild has landed.
-    #[must_use]
-    pub fn entity_residue_offsets(&self) -> &BTreeMap<EntityId, u32> {
-        &self.gpu.pick.entity_residue_offsets
-    }
-
-    /// Overwrite the residue selection with `residues` (already
-    /// translated into the GPU's flat residue index space) and
-    /// regenerate the GPU selection bitset.
-    pub fn set_selection(&mut self, residues: Vec<i32>) {
-        self.gpu.pick.picking.selected_residues = residues;
+    /// Replace the residue selection. `selection` is the per-entity
+    /// authoritative selection (the same shape foldit-core's
+    /// `App.selection` holds). viso stores it as the source of truth and
+    /// re-derives the flat GPU bitset from its own always-current
+    /// per-entity residue offsets, both here and on every mesh rebuild, so
+    /// the highlight can never go stale relative to a shifting residue
+    /// space.
+    pub fn set_selection(
+        &mut self,
+        selection: &BTreeMap<EntityId, BTreeSet<u32>>,
+    ) {
+        self.gpu.pick.set_selection(selection.clone());
         self.gpu
             .pick
             .update_selection_buffer(&self.gpu.context.queue);

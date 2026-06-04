@@ -16,8 +16,8 @@ use crate::VisoEngine;
 /// Mirrors the consumer-side selection that foldit-core's
 /// `App.selection` owns. Each click event produced by
 /// [`VisoEngine::feed_pointer_button`] is fed through
-/// [`Self::apply_click`], which mutates the store and re-flattens
-/// into the engine's GPU residue space via
+/// [`Self::apply_click`], which mutates the store and pushes the
+/// per-entity selection into the engine via
 /// [`VisoEngine::set_selection`].
 #[derive(Default)]
 pub struct SelectionStore {
@@ -31,8 +31,8 @@ impl SelectionStore {
         Self::default()
     }
 
-    /// Apply a click-event to the selection store and re-flatten the
-    /// result into `engine`'s GPU residue space.
+    /// Apply a click-event to the selection store and push the updated
+    /// per-entity selection into `engine`.
     pub fn apply_click(&mut self, engine: &mut VisoEngine, click: &ClickEvent) {
         match classify_click_for_selection(click) {
             ClickSelectionAction::Clear => {
@@ -67,23 +67,10 @@ impl SelectionStore {
         }
     }
 
-    /// Re-flatten the per-entity selection into the engine's flat
-    /// residue space. No-op before an offsets map has been published
-    /// by the first full rebuild (entities with no offset entry are
-    /// dropped).
+    /// Push the per-entity selection to the engine, which owns the
+    /// per-entity-to-flat derivation against its always-current residue
+    /// offsets (so the highlight stays correct across mesh rebuilds).
     fn flush(&self, engine: &mut VisoEngine) {
-        let mut flat: Vec<i32> = Vec::new();
-        {
-            let offsets = engine.entity_residue_offsets();
-            for (eid, residues) in &self.residues {
-                let Some(&base) = offsets.get(eid) else {
-                    continue;
-                };
-                for r in residues {
-                    flat.push((base + *r) as i32);
-                }
-            }
-        }
-        engine.set_selection(flat);
+        engine.set_selection(&self.residues);
     }
 }
