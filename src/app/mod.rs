@@ -199,6 +199,11 @@ impl VisoApp {
         // (and that recompute walks zero entities).
         self.assembly = Assembly::new(Vec::new());
         engine.reset_scene_local_state();
+        // reset_scene_local_state no longer clears per-entity scores (so a
+        // per-publish replace_assembly preserves the surviving entities).
+        // This is a genuine teardown and the next scene may reuse entity
+        // ids, so drop scores explicitly to stop stale colors bleeding.
+        engine.clear_scores();
     }
 
     /// Replace one or more entities with new [`MoleculeEntity`] data.

@@ -171,16 +171,32 @@ pub(crate) fn resolve_drawing_mode(
 }
 
 impl EntityAnnotations {
-    /// Clear every annotation back to the default state (focus back
-    /// to session-wide, every map emptied).
+    /// Clear annotation state back to the default (focus session-wide,
+    /// every map emptied) EXCEPT per-entity scores.
+    ///
+    /// Scores deliberately survive `reset`. A per-publish topology swap
+    /// (`replace_assembly`) routes through here; blanket-clearing the
+    /// score map would blank the surviving committed entities for the one
+    /// frame between the reset and the recolor (a gray flash). Membership
+    /// is instead reconciled by [`Self::retain_entities`] on the next
+    /// sync, which drops only the entities that actually left the
+    /// assembly. Genuine teardown, where the next topology may reuse
+    /// entity ids, must drop scores explicitly via [`Self::clear_scores`].
     pub(crate) fn reset(&mut self) {
         self.focus = Focus::default();
         self.visibility.clear();
         self.behaviors.clear();
         self.appearance.clear();
-        self.scores.clear();
         self.ss_overrides.clear();
         self.surfaces.clear();
+    }
+
+    /// Drop every per-entity score entry. Scores survive [`Self::reset`]
+    /// (reconciled by id on the next sync), so a genuine topology
+    /// teardown / reload that may reuse entity ids must clear them here or
+    /// the next molecule inherits the previous one's colors.
+    pub(crate) fn clear_scores(&mut self) {
+        self.scores.clear();
     }
 }
 
@@ -489,6 +505,18 @@ impl VisoEngine {
             // the GPU on its own without a mesh rebuild.
             self.apply_entity_invalidation(RenderInvalidation::RE_COLOR);
         }
+    }
+
+    /// Drop all per-entity score annotations and recolor.
+    ///
+    /// Scores survive a per-publish `replace_assembly` (reconciled by id
+    /// on the next sync) so surviving entities don't flash neutral for a
+    /// frame. A genuine teardown / reload is different: the next topology
+    /// may reuse entity ids, so the host must clear scores explicitly here
+    /// or a reused id inherits the previous molecule's colors.
+    pub fn clear_scores(&mut self) {
+        self.annotations.clear_scores();
+        self.apply_entity_invalidation(RenderInvalidation::RE_COLOR);
     }
 
     /// Set an SS override for an entity. The override is engine-side
