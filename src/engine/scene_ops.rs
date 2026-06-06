@@ -49,6 +49,34 @@ impl VisoEngine {
         self.fit_camera_to_focus();
     }
 
+    /// Set focus **without** reframing the camera.
+    ///
+    /// The side-effect-free mirror setter: unlike [`Self::cycle_focus`] /
+    /// [`Self::reset_focus`] / [`Self::focus_entity`] (which all call
+    /// [`Self::fit_camera_to_focus`]), this only records the focus value.
+    /// A host that owns focus state itself pushes the value in for camera
+    /// framing here, then drives the reframe on its own cadence.
+    pub fn set_focus(&mut self, focus: Focus) {
+        self.annotations.focus = focus;
+    }
+
+    /// The entities currently eligible for focus: visible and of a
+    /// focusable molecule type, in scene order.
+    ///
+    /// This is the policy the Tab-cycle steps through (the same filter
+    /// [`Self::cycle_focus`] applies internally); exposed so a host that
+    /// owns focus state can read the list without mutating focus.
+    #[must_use]
+    pub fn focusable_entities(&self) -> Vec<EntityId> {
+        self.scene
+            .current
+            .entities()
+            .iter()
+            .filter(|e| self.annotations.is_visible(e.id()) && e.is_focusable())
+            .map(|e| e.id())
+            .collect()
+    }
+
     /// Toggle visibility of a specific entity.
     pub fn toggle_entity_visibility(&mut self, id: EntityId) {
         let currently_visible = self.is_entity_visible(id.raw());
