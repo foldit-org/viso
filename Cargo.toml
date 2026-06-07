@@ -60,7 +60,7 @@ toml = "0.8"
 schemars = "1"
 
 # Error handling
-thiserror = "1"
+thiserror = "2"
 
 # Logging
 log = { version = "0.4", features = ["release_max_level_info"] }
