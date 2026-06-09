@@ -5,18 +5,10 @@
 
 #define_import_path viso::ray
 
-// ---------------------------------------------------------------------------
-// Ray struct (used by AABB helpers)
-// ---------------------------------------------------------------------------
-
 struct Ray {
     origin: vec3<f32>,
     direction: vec3<f32>,
 };
-
-// ---------------------------------------------------------------------------
-// Sphere
-// ---------------------------------------------------------------------------
 
 /// Ray-sphere intersection via the quadratic formula.
 /// Returns the nearest positive `t`, or a negative value on miss.
@@ -44,11 +36,7 @@ fn intersect_sphere(
     return t;
 }
 
-// ---------------------------------------------------------------------------
-// Capsule  (cylinder with hemispherical caps)
-// ---------------------------------------------------------------------------
-
-/// Ray-capsule intersection.
+/// Ray-capsule intersection (cylinder with hemispherical caps).
 /// Returns `vec3(t, axis_param, hit_type)` where:
 ///   - `t`          = ray parameter (negative means miss)
 ///   - `axis_param` = 0..1 position along capsule axis
@@ -178,10 +166,6 @@ fn capsule_normal(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Cone
-// ---------------------------------------------------------------------------
-
 /// Ray-cone intersection.
 /// Returns `vec3(t, u, hit_type)` where:
 ///   - `t`        = ray parameter (negative means miss)
@@ -296,10 +280,6 @@ fn cone_normal(
         return normalize(radial_dir + axis_dir * slope);
     }
 }
-
-// ---------------------------------------------------------------------------
-// AABB
-// ---------------------------------------------------------------------------
 
 /// Ray-AABB intersection via slab method.
 /// Returns `(t_near, t_far)`. Negative `t_near` means miss.
