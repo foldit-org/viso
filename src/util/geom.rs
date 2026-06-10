@@ -30,10 +30,14 @@ pub(crate) fn newell_normal(positions: &[Vec3]) -> Vec3 {
 ///
 /// Interior samples use the symmetric `p[i+1] - p[i-1]`; the endpoints
 /// fall back to the one-sided forward/backward difference. Each result
-/// is normalized (zero for a degenerate coincident pair).
+/// is normalized (zero for a degenerate coincident pair). A lone point
+/// has no defined tangent and yields a single zero vector.
 #[must_use]
 pub(crate) fn central_difference_tangents(spline: &[Vec3]) -> Vec<Vec3> {
     let n = spline.len();
+    if n <= 1 {
+        return vec![Vec3::ZERO; n];
+    }
     (0..n)
         .map(|i| {
             if i == 0 {
@@ -45,4 +49,36 @@ pub(crate) fn central_difference_tangents(spline: &[Vec3]) -> Vec<Vec3> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_central_difference_empty() {
+        let tangents = central_difference_tangents(&[]);
+        assert!(tangents.is_empty());
+    }
+
+    #[test]
+    fn test_central_difference_single_point() {
+        // Regression: a lone point used to index spline[1] and panic.
+        let tangents = central_difference_tangents(&[Vec3::new(1.0, 2.0, 3.0)]);
+        assert_eq!(tangents, vec![Vec3::ZERO]);
+    }
+
+    #[test]
+    fn test_central_difference_colinear_unit_tangents() {
+        // Three points along +X: every tangent should be the +X unit vector.
+        let tangents = central_difference_tangents(&[
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+        ]);
+        assert_eq!(tangents.len(), 3);
+        for t in tangents {
+            assert!((t - Vec3::X).length() < 1e-6, "expected +X, got {t}");
+        }
+    }
 }

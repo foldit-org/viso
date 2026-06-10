@@ -15,6 +15,7 @@
 // for overlap regions is a thickness discontinuity which we accept.
 
 #import viso::camera::CameraUniform
+#import viso::cavity::{cavity_displacement, ISO_KIND_CAVITY}
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -36,8 +37,20 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = camera.view_proj * vec4<f32>(in.position, 1.0);
-    out.view_z = dot(in.position - camera.position, camera.forward);
+
+    // Apply the SAME cavity displacement as the isosurface front-face
+    // pass. The Beer-Lambert thickness is (back_view_z - front_view_z),
+    // so back-faces must be displaced identically or the thickness is
+    // geometrically wrong. Non-cavity kinds are unaffected.
+    var pos = in.position;
+    if (in.kind == ISO_KIND_CAVITY) {
+        pos = pos + cavity_displacement(
+            in.position, in.normal, in.cavity_center, camera.time,
+        );
+    }
+
+    out.clip_position = camera.view_proj * vec4<f32>(pos, 1.0);
+    out.view_z = dot(pos - camera.position, camera.forward);
     return out;
 }
 

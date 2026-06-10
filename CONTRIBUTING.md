@@ -47,17 +47,26 @@ These are only needed for `just check-all`:
 
 ## Lint policy
 
-All lint rules live as crate-level attributes in `src/lib.rs`. That file is the
-single source of truth. There is no `[lints]` section in `Cargo.toml`.
+Lint rules live in `Cargo.toml`: the package has `[lints] workspace = true`,
+and the rules themselves are in the `[workspace.lints.clippy]`,
+`[workspace.lints.rust]`, and `[workspace.lints.rustdoc]` tables. That is the
+single source of truth. (`src/lib.rs` carries only `#![deny(deprecated)]`.)
 
 Highlights:
 
-- `clippy::all`, `clippy::pedantic`, and `clippy::nursery` are all **denied**.
+- `clippy::all`, `clippy::pedantic`, `clippy::nursery`, and `clippy::cargo` are
+  all **denied** (at priority -1, so individual lints can override). Several
+  pedantic lints are explicitly allowed — e.g. the `cast_*` family, `float_cmp`,
+  `similar_names`, `use_self` — so pedantic is not denied without exception.
 - `missing_docs` is denied: every public item needs a doc comment.
 - `clippy::unwrap_used` and `clippy::expect_used` are denied in library code.
   Tests and `main.rs` may use `#[allow]` where appropriate.
-- Complexity lints (`cognitive_complexity`, `too_many_lines`,
-  `excessive_nesting`) are denied with thresholds set in `clippy.toml`.
+- Complexity lints are mixed: `cognitive_complexity` and `excessive_nesting`
+  remain denied via the `nursery` group, with thresholds in `clippy.toml`. By
+  contrast `too_many_lines` and `too_many_arguments` are explicitly **allowed**
+  in `Cargo.toml`, so their `clippy.toml` thresholds are currently inert. The
+  `max-fn-params-bools` / `max-struct-bools` thresholds are live
+  (`fn_params_excessive_bools` / `struct_excessive_bools` stay denied).
 
 ## Running checks locally
 

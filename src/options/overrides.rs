@@ -6,6 +6,7 @@
 //! back to the user's global overrides, which fall back to built-in
 //! defaults. Same type is used at both scopes.
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use super::display::{
@@ -320,11 +321,20 @@ impl DisplayOverrides {
     /// Apply a single override field from a JSON value.
     ///
     /// `field` is the serde field name (matches a column in the entity
-    /// override panel). `value` is parsed into the typed slot via
-    /// `serde_json::from_value`. Unrecognised field names return `Err`.
+    /// override panel). The value is interpreted against the field's
+    /// typed slot:
+    ///
+    /// - `Null` clears the override (sets the slot to `None`, so the field
+    ///   inherits from the next level up). This is the UI's "reset to default"
+    ///   signal.
+    /// - A valid value for the field sets the slot to `Some(parsed)`.
+    /// - A non-null but malformed value (wrong JSON type, or an unrecognised
+    ///   enum variant) leaves the slot untouched and returns `Err` — a
+    ///   fat-fingered value must not silently wipe an existing override.
     ///
     /// # Errors
-    /// Returns `Err(field)` if the field name is not recognised.
+    /// Returns `Err(field)` if the field name is not recognised, or if
+    /// `value` is non-null and fails to parse into the field's type.
     pub fn apply_json_field<'a>(
         &mut self,
         field: &'a str,
@@ -332,38 +342,37 @@ impl DisplayOverrides {
     ) -> Result<(), &'a str> {
         match field {
             "backbone_color_scheme" | "color_scheme" => {
-                self.color_scheme = serde_json::from_value(value.clone()).ok();
+                self.color_scheme = parse_field(value, field)?;
             }
             "show_sidechains" => {
-                self.show_sidechains = value.as_bool();
+                self.show_sidechains = parse_bool_field(value, field)?;
             }
             "drawing_mode" => {
-                self.drawing_mode = serde_json::from_value(value.clone()).ok();
+                self.drawing_mode = parse_field(value, field)?;
             }
             "helix_style" => {
-                self.helix_style = serde_json::from_value(value.clone()).ok();
+                self.helix_style = parse_field(value, field)?;
             }
             "sheet_style" => {
-                self.sheet_style = serde_json::from_value(value.clone()).ok();
+                self.sheet_style = parse_field(value, field)?;
             }
             "surface_kind" => {
-                self.surface_kind = serde_json::from_value(value.clone()).ok();
+                self.surface_kind = parse_field(value, field)?;
             }
             "surface_opacity" => {
-                self.surface_opacity = value.as_f64().map(|v| v as f32);
+                self.surface_opacity = parse_f32_field(value, field)?;
             }
             "show_hbonds" => {
-                self.show_hbonds = value.as_bool();
+                self.show_hbonds = parse_bool_field(value, field)?;
             }
             "hbond_style" => {
-                self.hbond_style = serde_json::from_value(value.clone()).ok();
+                self.hbond_style = parse_field(value, field)?;
             }
             "show_disulfides" => {
-                self.show_disulfides = value.as_bool();
+                self.show_disulfides = parse_bool_field(value, field)?;
             }
             "disulfide_style" => {
-                self.disulfide_style =
-                    serde_json::from_value(value.clone()).ok();
+                self.disulfide_style = parse_field(value, field)?;
             }
             _ => return Err(field),
         }
@@ -439,212 +448,49 @@ impl DisplayOverrides {
     }
 }
 
+/// Parse a JSON value into an optional typed override slot.
+///
+/// `Null` maps to `Ok(None)` (clear the override). A value that
+/// deserializes into `T` maps to `Ok(Some(value))`. Anything else
+/// (wrong JSON type, unrecognised enum variant) returns `Err(field)`
+/// so the caller can reject it without mutating the slot.
+fn parse_field<'a, T: DeserializeOwned>(
+    value: &serde_json::Value,
+    field: &'a str,
+) -> Result<Option<T>, &'a str> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    serde_json::from_value(value.clone())
+        .map(Some)
+        .map_err(|_| field)
+}
+
+/// Bool variant of [`parse_field`]: `Null` clears, a JSON bool sets,
+/// anything else is rejected.
+fn parse_bool_field<'a>(
+    value: &serde_json::Value,
+    field: &'a str,
+) -> Result<Option<bool>, &'a str> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    value.as_bool().map(Some).ok_or(field)
+}
+
+/// f32 variant of [`parse_field`]: `Null` clears, a JSON number sets
+/// (narrowed to `f32`), anything else is rejected.
+fn parse_f32_field<'a>(
+    value: &serde_json::Value,
+    field: &'a str,
+) -> Result<Option<f32>, &'a str> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    value.as_f64().map(|v| Some(v as f32)).ok_or(field)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    fn sample_global() -> DisplayOverrides {
-        DisplayOverrides {
-            drawing_mode: Some(DrawingMode::Cartoon),
-            color_scheme: Some(ColorScheme::Entity),
-            show_sidechains: Some(true),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn default_is_empty() {
-        let a = DisplayOverrides::default();
-        assert!(a.is_empty());
-    }
-
-    #[test]
-    fn overlay_inherits_from_base() {
-        let base = sample_global();
-        let entity = DisplayOverrides::default();
-        let overlaid = entity.overlay(&base);
-        assert_eq!(overlaid.drawing_mode, Some(DrawingMode::Cartoon));
-        assert_eq!(overlaid.show_sidechains, Some(true));
-    }
-
-    #[test]
-    fn overlay_self_wins() {
-        let base = sample_global();
-        let entity = DisplayOverrides {
-            drawing_mode: Some(DrawingMode::BallAndStick),
-            ..Default::default()
-        };
-        let overlaid = entity.overlay(&base);
-        assert_eq!(overlaid.drawing_mode, Some(DrawingMode::BallAndStick));
-        // Other fields still inherited
-        assert_eq!(overlaid.color_scheme, Some(ColorScheme::Entity));
-    }
-
-    #[test]
-    fn overlay_is_associative() {
-        let a = DisplayOverrides {
-            drawing_mode: Some(DrawingMode::Stick),
-            ..Default::default()
-        };
-        let b = DisplayOverrides {
-            color_scheme: Some(ColorScheme::BFactor),
-            ..Default::default()
-        };
-        let c = DisplayOverrides {
-            show_sidechains: Some(true),
-            ..Default::default()
-        };
-        let lhs = a.overlay(&b).overlay(&c);
-        let rhs = a.overlay(&b.overlay(&c));
-        assert_eq!(lhs, rhs);
-    }
-
-    #[test]
-    fn round_trip_serde() {
-        let a = sample_global();
-        let json = serde_json::to_string(&a).unwrap();
-        let b: DisplayOverrides = serde_json::from_str(&json).unwrap();
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn legacy_toml_aliases_accepted() {
-        // Existing TOML used `backbone_color_scheme` and
-        // `backbone_palette_*` keys at the [display] level. After the
-        // refactor these flatten into DisplayOverrides via aliases.
-        let toml_str = r#"
-backbone_color_scheme = "b_factor"
-backbone_palette_preset = "viridis"
-"#;
-        let parsed: DisplayOverrides = toml::from_str(toml_str).unwrap();
-        assert_eq!(parsed.color_scheme, Some(ColorScheme::BFactor));
-        assert_eq!(parsed.palette_preset, Some(PalettePreset::Viridis),);
-    }
-
-    #[test]
-    fn to_display_options_patches_all_fields() {
-        let base = DisplayOptions::default();
-        let ovr = DisplayOverrides {
-            drawing_mode: Some(DrawingMode::Stick),
-            color_scheme: Some(ColorScheme::BFactor),
-            show_sidechains: Some(false),
-            ..Default::default()
-        };
-        let result = ovr.to_display_options(&base);
-        assert_eq!(result.drawing_mode(), DrawingMode::Stick);
-        assert_eq!(result.backbone_color_scheme(), ColorScheme::BFactor);
-        assert!(!result.show_sidechains());
-        // Unset fields pass through from base
-        assert_eq!(result.helix_style(), base.helix_style());
-    }
-
-    // ── RenderInvalidation tests ───────────────────────────────────────
-
-    #[test]
-    fn invalidation_none_is_empty() {
-        assert!(RenderInvalidation::NONE.is_empty());
-        assert!(!RenderInvalidation::RE_MESH.is_empty());
-    }
-
-    #[test]
-    fn invalidation_bitor_and_contains() {
-        let combined =
-            RenderInvalidation::RE_MESH | RenderInvalidation::RE_COLOR;
-        assert!(combined.contains(RenderInvalidation::RE_MESH));
-        assert!(combined.contains(RenderInvalidation::RE_COLOR));
-        assert!(!combined.contains(RenderInvalidation::RE_SURFACE));
-    }
-
-    #[test]
-    fn diff_identical_returns_none() {
-        let a = sample_global();
-        assert_eq!(a.diff(&a), RenderInvalidation::NONE);
-    }
-
-    #[test]
-    fn diff_drawing_mode_sets_resolve_and_mesh() {
-        let a = DisplayOverrides::default();
-        let b = DisplayOverrides {
-            drawing_mode: Some(DrawingMode::Stick),
-            ..Default::default()
-        };
-        let inv = a.diff(&b);
-        assert!(inv.contains(RenderInvalidation::DRAWING_MODE_RESOLVE));
-        assert!(inv.contains(RenderInvalidation::RE_MESH));
-        assert!(!inv.contains(RenderInvalidation::RE_SURFACE));
-    }
-
-    #[test]
-    fn diff_color_scheme_sets_color_and_mesh() {
-        let a = DisplayOverrides::default();
-        let b = DisplayOverrides {
-            color_scheme: Some(ColorScheme::BFactor),
-            ..Default::default()
-        };
-        let inv = a.diff(&b);
-        assert!(inv.contains(RenderInvalidation::RE_COLOR));
-        assert!(inv.contains(RenderInvalidation::RE_MESH));
-        assert!(!inv.contains(RenderInvalidation::DRAWING_MODE_RESOLVE));
-    }
-
-    #[test]
-    fn diff_surface_kind_sets_re_surface() {
-        // Previously a bug: per-entity surface_kind changes never
-        // triggered surface regeneration. RE_SURFACE must fire.
-        let a = DisplayOverrides::default();
-        let b = DisplayOverrides {
-            surface_kind: Some(SurfaceKindOption::Gaussian),
-            ..Default::default()
-        };
-        let inv = a.diff(&b);
-        assert!(inv.contains(RenderInvalidation::RE_SURFACE));
-        assert!(!inv.contains(RenderInvalidation::RE_MESH));
-    }
-
-    #[test]
-    fn diff_helix_style_sets_lod_and_mesh() {
-        let a = DisplayOverrides::default();
-        let b = DisplayOverrides {
-            helix_style: Some(HelixStyle::Cylinder),
-            ..Default::default()
-        };
-        let inv = a.diff(&b);
-        assert!(inv.contains(RenderInvalidation::LOD_REMESH));
-        assert!(inv.contains(RenderInvalidation::RE_MESH));
-    }
-
-    #[test]
-    fn diff_bond_style_sets_mesh_only() {
-        let a = DisplayOverrides::default();
-        let b = DisplayOverrides {
-            show_hbonds: Some(true),
-            ..Default::default()
-        };
-        let inv = a.diff(&b);
-        assert!(inv.contains(RenderInvalidation::RE_MESH));
-        assert!(!inv.contains(RenderInvalidation::RE_SURFACE));
-        assert!(!inv.contains(RenderInvalidation::RE_COLOR));
-    }
-
-    #[test]
-    fn diff_simultaneous_changes_union() {
-        // Regression test for the historical triple-sync bug: multiple
-        // concurrent field changes should OR into a single invalidation
-        // set with each kind firing at most once (dedup is structural).
-        let a = DisplayOverrides::default();
-        let b = DisplayOverrides {
-            drawing_mode: Some(DrawingMode::Stick),
-            color_scheme: Some(ColorScheme::BFactor),
-            helix_style: Some(HelixStyle::Tube),
-            surface_kind: Some(SurfaceKindOption::Gaussian),
-            ..Default::default()
-        };
-        let inv = a.diff(&b);
-        assert!(inv.contains(RenderInvalidation::DRAWING_MODE_RESOLVE));
-        assert!(inv.contains(RenderInvalidation::RE_MESH));
-        assert!(inv.contains(RenderInvalidation::RE_COLOR));
-        assert!(inv.contains(RenderInvalidation::LOD_REMESH));
-        assert!(inv.contains(RenderInvalidation::RE_SURFACE));
-    }
-}
+#[path = "overrides_tests.rs"]
+mod tests;

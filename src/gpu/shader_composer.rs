@@ -84,6 +84,10 @@ const MODULE_PATHS: &[(&str, &str)] = &[
         include_str!("../shaders/modules/constants.wgsl"),
     ),
     (
+        "modules/cavity.wgsl",
+        include_str!("../shaders/modules/cavity.wgsl"),
+    ),
+    (
         "modules/depth.wgsl",
         include_str!("../shaders/modules/depth.wgsl"),
     ),
