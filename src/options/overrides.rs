@@ -211,6 +211,14 @@ impl std::ops::BitOrAssign for RenderInvalidation {
 }
 
 impl DisplayOverrides {
+    /// Generate the JSON Schema describing the per-entity appearance
+    /// override fields. The GUI walks this to render the per-entity body,
+    /// parallel to `VisoOptions::json_schema` for the global options panel.
+    #[must_use]
+    pub fn json_schema() -> schemars::Schema {
+        schemars::schema_for!(DisplayOverrides)
+    }
+
     /// Overlay `self` on `base`. `self`'s `Some` values win; `None`
     /// fields fall through to `base`.
     ///

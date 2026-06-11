@@ -330,7 +330,6 @@ impl SyncPipeline {
         gpu: &mut GpuPipeline,
         prepared: &PreparedRebuild,
         animating: bool,
-        suppress_sidechains: bool,
     ) {
         let (backbone_chains, na_chains) =
             Self::flat_scene_chains(scene, annotations);
@@ -338,7 +337,7 @@ impl SyncPipeline {
             backbone_chains: &backbone_chains,
             na_chains: &na_chains,
         };
-        gpu.upload_prepared(prepared, animating, suppress_sidechains, &chains);
+        gpu.upload_prepared(prepared, animating, &chains);
     }
 
     /// Flatten per-entity backbone / NA chains in assembly order. Only
@@ -397,16 +396,12 @@ impl SyncPipeline {
             Self::snap_from_prepared(scene, annotations, gpu);
         }
 
-        let suppress_sidechains = entity_transitions
-            .values()
-            .any(|t| t.suppress_initial_sidechains);
         Self::upload_prepared_to_gpu(
             scene,
             annotations,
             gpu,
             &prepared,
             animating,
-            suppress_sidechains,
         );
     }
 

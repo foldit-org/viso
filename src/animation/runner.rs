@@ -189,7 +189,6 @@ mod tests {
             ],
             name: "test-hidden-then-shown",
             allows_size_change: false,
-            suppress_initial_sidechains: true,
         };
         let runner = AnimationRunner::new(&transition);
 

@@ -76,7 +76,6 @@ impl GpuPipeline {
         &mut self,
         view: &wgpu::TextureView,
         camera: &CameraController,
-        show_sidechains: bool,
     ) -> wgpu::CommandEncoder {
         let mut encoder = self.context.create_encoder();
 
@@ -85,7 +84,6 @@ impl GpuPipeline {
             color: self.post_process.color_view(),
             normal: &self.post_process.normal_view,
             depth: &self.post_process.depth_view,
-            show_sidechains,
         };
         let bind_groups = DrawBindGroups {
             camera: &camera.bind_group,
@@ -121,8 +119,7 @@ impl GpuPipeline {
         );
 
         // GPU Picking pass
-        let picking_geometry =
-            self.pick.build_geometry(&self.renderers, show_sidechains);
+        let picking_geometry = self.pick.build_geometry(&self.renderers);
         self.pick.picking.render(
             &mut encoder,
             &camera.bind_group,
@@ -151,7 +148,6 @@ impl GpuPipeline {
         &mut self,
         prepared: &PreparedRebuild,
         animating: bool,
-        suppress_sidechains: bool,
         scene: &SceneChainData<'_>,
     ) {
         if animating {
@@ -172,15 +168,13 @@ impl GpuPipeline {
                 scene.backbone_chains,
                 scene.na_chains,
             );
-            if !suppress_sidechains {
-                let _ = self.renderers.sidechain.apply_prepared(
-                    &self.context.device,
-                    &self.context.queue,
-                    &prepared.sidechain_instances,
-                    prepared.sidechain_instance_count,
-                );
-                self.retain_sidechains(&prepared.sidechain_instances);
-            }
+            let _ = self.renderers.sidechain.apply_prepared(
+                &self.context.device,
+                &self.context.queue,
+                &prepared.sidechain_instances,
+                prepared.sidechain_instance_count,
+            );
+            self.retain_sidechains(&prepared.sidechain_instances);
         }
         self.upload_non_backbone(prepared);
     }

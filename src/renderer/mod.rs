@@ -62,8 +62,6 @@ pub(crate) struct GeometryPassInput<'a> {
     pub(crate) normal: &'a wgpu::TextureView,
     /// Depth attachment.
     pub(crate) depth: &'a wgpu::TextureView,
-    /// Whether sidechain capsules should be drawn.
-    pub(crate) show_sidechains: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -212,9 +210,7 @@ impl Renderers {
 
         self.backbone.draw_culled(&mut rp, bind_groups, frustum);
 
-        if input.show_sidechains {
-            self.sidechain.draw(&mut rp, bind_groups);
-        }
+        self.sidechain.draw(&mut rp, bind_groups);
 
         self.ball_and_stick.draw(&mut rp, bind_groups);
         self.nucleic_acid.draw(&mut rp, bind_groups);

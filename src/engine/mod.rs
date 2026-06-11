@@ -178,11 +178,7 @@ impl VisoEngine {
         &mut self,
         view: &wgpu::TextureView,
     ) -> wgpu::CommandEncoder {
-        self.gpu.render_to_view(
-            view,
-            &self.camera_controller,
-            self.options.display.show_sidechains(),
-        )
+        self.gpu.render_to_view(view, &self.camera_controller)
     }
 
     /// Execute one frame: update animations, run the geometry pass,

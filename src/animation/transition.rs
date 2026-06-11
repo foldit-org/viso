@@ -37,9 +37,6 @@ pub struct Transition {
     /// Whether the animator should allow backbone size changes.
     /// When false, size mismatches cause an instant snap.
     pub allows_size_change: bool,
-    /// Whether to suppress initial sidechain GPU uploads.
-    /// Used by multi-phase behaviors that hide sidechains in phase 1.
-    pub suppress_initial_sidechains: bool,
 }
 
 impl Transition {
@@ -63,7 +60,6 @@ impl Transition {
 
             name: "snap",
             allows_size_change: true,
-            suppress_initial_sidechains: false,
         }
     }
 
@@ -81,7 +77,6 @@ impl Transition {
 
             name: "smooth",
             allows_size_change: false,
-            suppress_initial_sidechains: false,
         }
     }
 
@@ -102,7 +97,6 @@ impl Transition {
             }],
             name: "cascade",
             allows_size_change: false,
-            suppress_initial_sidechains: false,
         }
     }
 
@@ -126,7 +120,6 @@ impl Transition {
             }],
             name: "eased",
             allows_size_change: false,
-            suppress_initial_sidechains: false,
         }
     }
 
@@ -134,13 +127,6 @@ impl Transition {
     #[must_use]
     pub fn allowing_size_change(mut self) -> Self {
         self.allows_size_change = true;
-        self
-    }
-
-    /// Suppress initial sidechain GPU uploads.
-    #[must_use]
-    pub fn suppressing_initial_sidechains(mut self) -> Self {
-        self.suppress_initial_sidechains = true;
         self
     }
 
@@ -158,7 +144,6 @@ impl Transition {
 
             name: "linear",
             allows_size_change: false,
-            suppress_initial_sidechains: false,
         }
     }
 }
@@ -175,10 +160,6 @@ impl std::fmt::Debug for Transition {
             .field("name", &self.name)
             .field("phases", &self.phases.len())
             .field("allows_size_change", &self.allows_size_change)
-            .field(
-                "suppress_initial_sidechains",
-                &self.suppress_initial_sidechains,
-            )
             .finish()
     }
 }
@@ -192,7 +173,6 @@ mod tests {
         let t = Transition::snap();
         assert_eq!(t.name, "snap");
         assert!(t.allows_size_change);
-        assert!(!t.suppress_initial_sidechains);
         assert_eq!(t.total_duration(), Duration::ZERO);
     }
 
@@ -201,7 +181,6 @@ mod tests {
         let t = Transition::smooth();
         assert_eq!(t.name, "smooth");
         assert!(!t.allows_size_change);
-        assert!(!t.suppress_initial_sidechains);
         assert_eq!(t.total_duration(), Duration::from_millis(300));
     }
 
@@ -213,10 +192,7 @@ mod tests {
 
     #[test]
     fn test_builder_methods() {
-        let t = Transition::smooth()
-            .allowing_size_change()
-            .suppressing_initial_sidechains();
+        let t = Transition::smooth().allowing_size_change();
         assert!(t.allows_size_change);
-        assert!(t.suppress_initial_sidechains);
     }
 }

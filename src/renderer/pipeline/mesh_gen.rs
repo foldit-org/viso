@@ -254,18 +254,23 @@ pub(super) fn generate_entity_mesh(
         )
     };
 
-    let (sidechain_instances, sidechain_instance_count) = if skip_backbone {
-        (Vec::new(), 0)
-    } else {
-        generate_sidechain_bytes(
-            topology,
-            &entity.positions,
-            entity.per_residue_colors.as_deref(),
-            &backbone_mesh.sheet_offsets,
-            colors,
-            display,
-        )
-    };
+    // Sidechains are also omitted when the entity's resolved
+    // `show_sidechains` is false, so a hidden entity contributes no
+    // capsule instances to the scene (the per-entity override is baked
+    // into the mesh here rather than gated at draw time).
+    let (sidechain_instances, sidechain_instance_count) =
+        if skip_backbone || !display.show_sidechains() {
+            (Vec::new(), 0)
+        } else {
+            generate_sidechain_bytes(
+                topology,
+                &entity.positions,
+                entity.per_residue_colors.as_deref(),
+                &backbone_mesh.sheet_offsets,
+                colors,
+                display,
+            )
+        };
     let (bns, na, bns_atom_count) =
         generate_non_backbone_bytes(entity, display, colors);
 

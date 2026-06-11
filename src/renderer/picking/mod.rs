@@ -257,7 +257,6 @@ impl PickingSystem {
     pub(crate) fn build_geometry<'a>(
         &'a self,
         renderers: &'a Renderers,
-        show_sidechains: bool,
     ) -> PickingGeometry<'a> {
         PickingGeometry {
             backbone_vertex_buffer: renderers.backbone.vertex_buffer(),
@@ -270,11 +269,7 @@ impl PickingSystem {
                 .backbone
                 .ribbon_index_count(),
             capsule_bind_group: self.groups.capsule.as_ref(),
-            capsule_count: if show_sidechains {
-                renderers.sidechain.instance_count()
-            } else {
-                0
-            },
+            capsule_count: renderers.sidechain.instance_count(),
             bns_capsule_bind_group: self.groups.bns_bond.as_ref(),
             bns_capsule_count: renderers.ball_and_stick.bond_count(),
             bns_sphere_bind_group: self.groups.bns_sphere.as_ref(),
