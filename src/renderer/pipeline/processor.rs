@@ -456,7 +456,11 @@ impl MeshCache {
             meshes.push(mesh);
         }
         let refs: Vec<&CachedEntityMesh> = meshes.iter().collect();
-        super::mesh_concat::concatenate_meshes(&refs)
+        let mut prepared = super::mesh_concat::concatenate_meshes(&refs);
+        // Backbone-only frames leave the previously uploaded sidechains
+        // untouched on apply; their positions are unchanged by level-of-detail.
+        prepared.sidechains_omitted = !include_sidechains;
+        prepared
     }
 
     /// Update cached meshes and return entity-ordered references for
@@ -562,4 +566,45 @@ fn drain_latest(
         }
     }
     latest
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A cache with no retained entities but populated scene state, so
+    /// `regenerate_for_animation` runs to its main return without needing
+    /// real topology or a GPU device. Backbone-only frames must mark the
+    /// result so the apply side leaves the retained sidechains untouched.
+    fn cache_with_empty_scene() -> MeshCache {
+        let mut cache = MeshCache::new();
+        cache.last_display = Some(DisplayOptions::default());
+        cache.last_colors = Some(ColorOptions::default());
+        cache.last_geometry = Some(GeometryOptions::default());
+        cache
+    }
+
+    #[test]
+    fn animation_frame_marks_omitted_when_sidechains_excluded() {
+        let cache = cache_with_empty_scene();
+        let prepared = cache.regenerate_for_animation(
+            &EntityPositions::new(),
+            &GeometryOptions::default(),
+            None,
+            false,
+        );
+        assert!(prepared.sidechains_omitted);
+    }
+
+    #[test]
+    fn animation_frame_unmarked_when_sidechains_included() {
+        let cache = cache_with_empty_scene();
+        let prepared = cache.regenerate_for_animation(
+            &EntityPositions::new(),
+            &GeometryOptions::default(),
+            None,
+            true,
+        );
+        assert!(!prepared.sidechains_omitted);
+    }
 }

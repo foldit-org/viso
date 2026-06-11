@@ -41,20 +41,24 @@ pub(crate) fn offset_vertex_residue_idx(
     }
 }
 
-/// Layout descriptor for patching pick IDs in BnS byte buffers.
-struct BnsPickPatch {
+/// Layout descriptor for patching pick IDs in instance byte buffers.
+struct InstancePickPatch {
     old_offset: u32,
     new_offset: u32,
     instance_stride: usize,
     pick_id_byte_offset: usize,
 }
 
-/// Patch pick IDs in BnS instance byte buffers.
+/// Patch pick IDs in an instance byte buffer.
 ///
 /// Each instance has a pick ID stored as `f32` at `pick_id_byte_offset`
 /// within each `instance_stride`-sized block. Adds `(new_offset - old_offset)`
-/// to each pick ID so that 0-based local atom indices become globally unique.
-fn offset_bns_pick_ids(dst: &mut Vec<u8>, src: &[u8], patch: &BnsPickPatch) {
+/// to each pick ID so that 0-based local indices become globally unique.
+fn offset_instance_pick_ids(
+    dst: &mut Vec<u8>,
+    src: &[u8],
+    patch: &InstancePickPatch,
+) {
     if patch.old_offset == patch.new_offset {
         dst.extend_from_slice(src);
         return;
@@ -106,12 +110,10 @@ struct MeshAccumulator {
     residue_offset: u32,
     /// Each entity's first global residue index in the GPU selection /
     /// per-residue color space, captured before `residue_offset` is
-    /// advanced for the entity. Skips entities whose
-    /// `CachedEntityMesh` is absent from `MeshCache`; the upstream
-    /// `MeshCache::update` always materializes one entry per
-    /// `FullRebuildEntity`, so this stays aligned with the
-    /// assembly-order visible-entity walk in
-    /// `super::super::engine::culling::flat_sidechain_state`.
+    /// advanced for the entity. The upstream `MeshCache::update` always
+    /// materializes one entry per `FullRebuildEntity`, so this stays
+    /// aligned with the assembly-order visible-entity walk that produced
+    /// the per-entity meshes.
     entity_residue_offsets: Vec<(EntityId, u32)>,
 }
 
@@ -121,9 +123,20 @@ impl MeshAccumulator {
             .push((mesh.entity_id, self.residue_offset));
         self.push_backbone(mesh);
 
-        // Sidechain instances (self-contained)
-        self.sidechain_bytes
-            .extend_from_slice(&mesh.sidechain_instances);
+        // Sidechain capsules pack a per-entity-local residue index in
+        // endpoint_b.w (byte 28). Shift it by the entity's global residue
+        // offset so picking and selection resolve the same global residue
+        // index the backbone uses. CapsuleInstance is 64 bytes.
+        offset_instance_pick_ids(
+            &mut self.sidechain_bytes,
+            &mesh.sidechain_instances,
+            &InstancePickPatch {
+                old_offset: 0,
+                new_offset: self.residue_offset,
+                instance_stride: 64,
+                pick_id_byte_offset: 28,
+            },
+        );
         self.sidechain_count += mesh.sidechain_instance_count;
 
         self.push_bns(mesh);
@@ -184,10 +197,10 @@ impl MeshAccumulator {
 
     fn push_bns(&mut self, mesh: &CachedEntityMesh) {
         // SphereInstance: 32 bytes, pick_id at byte 28 (color.w)
-        offset_bns_pick_ids(
+        offset_instance_pick_ids(
             &mut self.bns_spheres,
             &mesh.bns.sphere_instances,
-            &BnsPickPatch {
+            &InstancePickPatch {
                 old_offset: 0,
                 new_offset: self.bns_pick_offset,
                 instance_stride: 32,
@@ -196,10 +209,10 @@ impl MeshAccumulator {
         );
         self.bns_sphere_count += mesh.bns.sphere_count;
         // CapsuleInstance: 64 bytes, pick_id at byte 28 (endpoint_b.w)
-        offset_bns_pick_ids(
+        offset_instance_pick_ids(
             &mut self.bns_capsules,
             &mesh.bns.capsule_instances,
-            &BnsPickPatch {
+            &InstancePickPatch {
                 old_offset: 0,
                 new_offset: self.bns_pick_offset,
                 instance_stride: 64,
@@ -254,6 +267,11 @@ impl MeshAccumulator {
             },
             sidechain_instances: self.sidechain_bytes,
             sidechain_instance_count: self.sidechain_count,
+            // A rebuild always carries the resolved sidechain set, even when
+            // that set is legitimately empty (an all-Stick scene). The omit
+            // flag is for backbone-only animation frames only; an animation
+            // frame that omits sidechains sets it after concatenation.
+            sidechains_omitted: false,
             bns: BallAndStickInstances {
                 sphere_instances: self.bns_spheres,
                 sphere_count: self.bns_sphere_count,

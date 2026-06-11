@@ -1,7 +1,6 @@
 use glam::Vec3;
 
 use crate::renderer::geometry::backbone::SheetOffset;
-use crate::renderer::geometry::sidechain::{OwnedSidechainView, SidechainView};
 
 /// Total residue count from SoA protein backbone chains.
 pub(crate) fn backbone_residue_count(
@@ -36,31 +35,6 @@ fn debug_assert_offsets_sorted(offsets: &[SheetOffset]) {
             .all(|w| w[0].residue_idx <= w[1].residue_idx),
         "sheet offsets must be sorted by residue_idx for binary search"
     );
-}
-
-/// Apply sheet-surface offsets to sidechain positions and backbone-sidechain
-/// bonds, returning an [`OwnedSidechainView`] ready for the renderer.
-pub(crate) fn sheet_adjusted_view(
-    sidechain: &SidechainView<'_>,
-    offsets: &[SheetOffset],
-) -> OwnedSidechainView {
-    let positions = adjust_sidechains_for_sheet(
-        sidechain.positions,
-        sidechain.residue_indices,
-        offsets,
-    );
-    let backbone_bonds = adjust_bonds_for_sheet(
-        sidechain.backbone_bonds,
-        sidechain.residue_indices,
-        offsets,
-    );
-    OwnedSidechainView {
-        positions,
-        bonds: sidechain.bonds.to_vec(),
-        backbone_bonds,
-        hydrophobicity: sidechain.hydrophobicity.to_vec(),
-        residue_indices: sidechain.residue_indices.to_vec(),
-    }
 }
 
 /// Translate sidechain atom positions by sheet-flattening offsets.

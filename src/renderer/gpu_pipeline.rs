@@ -12,7 +12,8 @@ use crate::gpu::{RenderContext, ShaderComposer};
 use crate::options::{GeometryOptions, LightingOptions, VisoOptions};
 use crate::renderer::draw_context::DrawBindGroups;
 use crate::renderer::geometry::isosurface::IsosurfaceVertex;
-use crate::renderer::geometry::{PreparedBallAndStickData, SidechainView};
+use crate::renderer::geometry::PreparedBallAndStickData;
+use crate::renderer::impostor::CapsuleInstance;
 use crate::renderer::picking::PickingSystem;
 use crate::renderer::pipeline::prepared::{
     AnimationFrameBody, PreparedRebuild,
@@ -54,6 +55,11 @@ pub(crate) struct GpuPipeline {
     pub(crate) cursor_pos: (f32, f32),
     /// Camera eye position at the last frustum-culling update.
     pub(crate) last_cull_camera_eye: Vec3,
+    /// The full, already-colored sidechain capsule set from the most
+    /// recent rebuild or animation frame, retained on the main thread so
+    /// per-camera frustum culling can re-filter it without regenerating.
+    /// Pick ids are global (the rebuild path patches them in `mesh_concat`).
+    pub(crate) retained_sidechains: Vec<CapsuleInstance>,
     /// Retained so compiled shader modules stay alive for the engine lifetime.
     #[allow(dead_code)]
     pub(crate) shader_composer: ShaderComposer,
@@ -173,6 +179,7 @@ impl GpuPipeline {
                     &prepared.sidechain_instances,
                     prepared.sidechain_instance_count,
                 );
+                self.retain_sidechains(&prepared.sidechain_instances);
             }
         }
         self.upload_non_backbone(prepared);
@@ -226,18 +233,27 @@ impl GpuPipeline {
             prepared.backbone,
         );
 
-        let reallocated = self.renderers.sidechain.apply_prepared(
-            &self.context.device,
-            &self.context.queue,
-            &prepared.sidechain_instances,
-            prepared.sidechain_instance_count,
-        );
-        if reallocated {
-            self.pick.groups.rebuild_capsule(
-                &self.pick.picking,
+        // A backbone-only frame carries no sidechains because the producer
+        // omitted them, not because the scene has none. Sidechain positions
+        // are unchanged by level-of-detail, so leave both the GPU buffer and
+        // the retained set holding the prior (correct) sidechains. Touching
+        // them here would replace the retained set with empty and the
+        // frustum cull would then filter an empty set forever.
+        if !prepared.sidechains_omitted {
+            let reallocated = self.renderers.sidechain.apply_prepared(
                 &self.context.device,
-                &self.renderers.sidechain,
+                &self.context.queue,
+                &prepared.sidechain_instances,
+                prepared.sidechain_instance_count,
             );
+            self.retain_sidechains(&prepared.sidechain_instances);
+            if reallocated {
+                self.pick.groups.rebuild_capsule(
+                    &self.pick.picking,
+                    &self.context.device,
+                    &self.renderers.sidechain,
+                );
+            }
         }
 
         // Ball-and-stick + nucleic-acid geometry is derived from the same
@@ -455,22 +471,28 @@ impl GpuPipeline {
         self.pick.residue_colors.set_target_colors(colors);
     }
 
-    /// Upload a sheet-adjusted, frustum-culled sidechain view and
-    /// rebuild the capsule pick bind group. Exposed as a primitive so
-    /// the engine can compose it against whichever state feeds the
-    /// sidechain topology.
+    /// Retain a copy of the prepared sidechain capsules so per-camera
+    /// frustum culling can re-filter them. The bytes are the globalized,
+    /// already-colored instances that were just uploaded, so the retained
+    /// pick ids stay global.
+    fn retain_sidechains(&mut self, instances: &[u8]) {
+        self.retained_sidechains = capsule_instances_from_bytes(instances);
+    }
+
+    /// Re-upload only the retained sidechain capsules whose bounding sphere
+    /// intersects the camera frustum, then rebuild the capsule pick bind
+    /// group. This is a pure filter over the prepared set: color, sheet
+    /// adjustment, and global pick ids are inherited from the retained
+    /// instances unchanged.
     pub(crate) fn upload_frustum_culled_sidechains(
         &mut self,
-        view: &SidechainView,
         frustum: &crate::camera::frustum::Frustum,
-        per_residue_colors: Option<&[[f32; 3]]>,
     ) {
         self.renderers.sidechain.update_with_frustum(
             &self.context.device,
             &self.context.queue,
-            view,
-            Some(frustum),
-            per_residue_colors,
+            &self.retained_sidechains,
+            frustum,
         );
         self.pick.groups.rebuild_capsule(
             &self.pick.picking,
@@ -484,12 +506,86 @@ impl GpuPipeline {
     pub(crate) fn set_last_cull_camera_eye(&mut self, eye: Vec3) {
         self.last_cull_camera_eye = eye;
     }
+}
 
-    /// Read-only access to the backbone renderer's current sheet-offset
-    /// list for main-thread sidechain adjustment.
-    pub(crate) fn backbone_sheet_offsets(
-        &self,
-    ) -> &[crate::renderer::geometry::backbone::SheetOffset] {
-        self.renderers.backbone.sheet_offsets()
+/// Decode concatenated capsule-instance bytes into a typed Vec.
+///
+/// The source bytes come from a `Vec<u8>` and so carry only 1-byte
+/// alignment, while `CapsuleInstance` needs 16-byte alignment. A direct
+/// `cast_slice` would panic on that mismatch, so each stride-sized chunk
+/// is read with `pod_read_unaligned`, which copies the bytes without an
+/// alignment precondition. The copy is the once-per-apply retain cost.
+fn capsule_instances_from_bytes(bytes: &[u8]) -> Vec<CapsuleInstance> {
+    let stride = size_of::<CapsuleInstance>();
+    bytes
+        .chunks_exact(stride)
+        .map(bytemuck::pod_read_unaligned::<CapsuleInstance>)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_instances() -> Vec<CapsuleInstance> {
+        vec![
+            CapsuleInstance {
+                endpoint_a: [1.0, 2.0, 3.0, 0.5],
+                endpoint_b: [4.0, 5.0, 6.0, 7.0],
+                color_a: [0.1, 0.2, 0.3, 0.0],
+                color_b: [0.4, 0.5, 0.6, 0.0],
+            },
+            CapsuleInstance {
+                endpoint_a: [-1.0, -2.0, -3.0, 1.5],
+                endpoint_b: [-4.0, -5.0, -6.0, 8.0],
+                color_a: [0.9, 0.8, 0.7, 0.0],
+                color_b: [0.6, 0.5, 0.4, 0.0],
+            },
+            CapsuleInstance {
+                endpoint_a: [10.0, 20.0, 30.0, 2.5],
+                endpoint_b: [40.0, 50.0, 60.0, 9.0],
+                color_a: [0.05, 0.15, 0.25, 0.0],
+                color_b: [0.35, 0.45, 0.55, 0.0],
+            },
+        ]
+    }
+
+    fn assert_same(decoded: &[CapsuleInstance], expected: &[CapsuleInstance]) {
+        assert_eq!(decoded.len(), expected.len());
+        for (got, want) in decoded.iter().zip(expected.iter()) {
+            assert_eq!(got.endpoint_a, want.endpoint_a);
+            assert_eq!(got.endpoint_b, want.endpoint_b);
+            assert_eq!(got.color_a, want.color_a);
+            assert_eq!(got.color_b, want.color_b);
+        }
+    }
+
+    /// Decoding bytes that are only 1-byte aligned (the real retain path
+    /// feeds a `Vec<u8>`) must round-trip without panicking. The previous
+    /// `cast_slice` implementation panicked here on alignment.
+    #[test]
+    fn from_bytes_handles_byte_aligned_source() {
+        let expected = sample_instances();
+        // A Vec<u8> copy carries only 1-byte alignment, matching the live
+        // input that crashed the old cast.
+        let bytes: Vec<u8> = bytemuck::cast_slice(&expected).to_vec();
+        let decoded = capsule_instances_from_bytes(&bytes);
+        assert_same(&decoded, &expected);
+    }
+
+    /// Decoding from a deliberately misaligned offset must also succeed,
+    /// proving the path does not rely on the source happening to land on a
+    /// 16-byte boundary.
+    #[test]
+    fn from_bytes_handles_misaligned_slice() {
+        let expected = sample_instances();
+        let body: Vec<u8> = bytemuck::cast_slice(&expected).to_vec();
+        // Prepend one byte and slice past it so the input start is offset
+        // by one from whatever alignment the allocation had.
+        let mut padded = Vec::with_capacity(body.len() + 1);
+        padded.push(0u8);
+        padded.extend_from_slice(&body);
+        let decoded = capsule_instances_from_bytes(&padded[1..]);
+        assert_same(&decoded, &expected);
     }
 }

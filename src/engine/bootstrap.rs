@@ -179,6 +179,7 @@ impl VisoEngine {
                 lighting: bootstrap.lighting,
                 cursor_pos: (0.0, 0.0),
                 last_cull_camera_eye: Vec3::ZERO,
+                retained_sidechains: Vec::new(),
                 shader_composer: bootstrap.shader_composer,
                 density_rx,
             },

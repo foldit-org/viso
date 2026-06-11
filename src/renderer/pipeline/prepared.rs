@@ -181,6 +181,14 @@ pub(crate) struct PreparedRebuild {
     pub(crate) sidechain_instances: Vec<u8>,
     /// Number of sidechain capsule instances.
     pub(crate) sidechain_instance_count: u32,
+    /// True when this frame deliberately carries no sidechains because the
+    /// producer omitted them (a backbone-only animation frame). Sidechain
+    /// positions are unchanged by level-of-detail, so the apply side leaves
+    /// the previously uploaded and retained sidechains in place rather than
+    /// clobbering them with this empty set. A full rebuild always carries
+    /// the resolved sidechain set (legitimately empty for an all-Stick
+    /// scene), so it leaves this false.
+    pub(crate) sidechains_omitted: bool,
     /// Ball-and-stick instance data.
     pub(crate) bns: BallAndStickInstances,
     /// Nucleic acid instance data.

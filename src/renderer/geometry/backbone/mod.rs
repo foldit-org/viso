@@ -347,9 +347,6 @@ impl BackboneRenderer {
     pub(crate) fn set_cached_lod_tiers(&mut self, tiers: Vec<u8>) {
         self.cached_lod_tiers = tiers;
     }
-    pub(crate) fn sheet_offsets(&self) -> &[SheetOffset] {
-        &self.sheet_offsets
-    }
     pub(crate) fn cached_chains(&self) -> &[ProteinBackboneChain] {
         &self.cached_chains
     }

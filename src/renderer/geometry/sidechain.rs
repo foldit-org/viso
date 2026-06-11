@@ -18,9 +18,6 @@ use crate::renderer::impostor::{CapsuleInstance, ImpostorPass, ShaderDef};
 /// Radius used for frustum culling (capsule bounding sphere)
 const CULL_RADIUS: f32 = 5.0;
 
-// Color constants
-const HYDROPHOBIC_COLOR: [f32; 3] = [0.3, 0.5, 0.9]; // Blue
-const HYDROPHILIC_COLOR: [f32; 3] = [0.95, 0.6, 0.2]; // Orange
 const CAPSULE_RADIUS: f32 = 0.3;
 
 /// Borrowed view of sidechain geometry data for GPU rendering.
@@ -38,36 +35,6 @@ pub(crate) struct SidechainView<'a> {
     pub(crate) hydrophobicity: &'a [bool],
     /// Residue index for each sidechain atom.
     pub(crate) residue_indices: &'a [u32],
-}
-
-/// Owned sidechain data with optional position/bond overrides (e.g.
-/// sheet-surface adjustment). Use [`as_view`](Self::as_view) to borrow as a
-/// [`SidechainView`].
-pub(crate) struct OwnedSidechainView {
-    /// World-space atom positions (may be sheet-adjusted).
-    pub(crate) positions: Vec<Vec3>,
-    /// Intra-sidechain bonds.
-    pub(crate) bonds: Vec<(u32, u32)>,
-    /// CA-CB backbone bonds (may be sheet-adjusted).
-    pub(crate) backbone_bonds: Vec<(Vec3, u32)>,
-    /// Per-atom hydrophobicity flags.
-    pub(crate) hydrophobicity: Vec<bool>,
-    /// Residue index for each sidechain atom.
-    pub(crate) residue_indices: Vec<u32>,
-}
-
-impl OwnedSidechainView {
-    /// Borrow as a [`SidechainView`] for passing to renderers.
-    #[must_use]
-    pub(crate) fn as_view(&self) -> SidechainView<'_> {
-        SidechainView {
-            positions: &self.positions,
-            bonds: &self.bonds,
-            backbone_bonds: &self.backbone_bonds,
-            hydrophobicity: &self.hydrophobicity,
-            residue_indices: &self.residue_indices,
-        }
-    }
 }
 
 /// Renders sidechains as capsule chains (cylinders with hemispherical caps).
@@ -119,8 +86,10 @@ impl SidechainRenderer {
             sidechain.bonds.len() + sidechain.backbone_bonds.len(),
         );
 
+        // Callers pass explicit colors; the neutral fallback only applies
+        // when there is no sidechain geometry to color (empty initial view).
         let (hydrophobic_color, hydrophilic_color) =
-            sidechain_colors.unwrap_or((HYDROPHOBIC_COLOR, HYDROPHILIC_COLOR));
+            sidechain_colors.unwrap_or(([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]));
 
         // Helper to get color for an atom index
         let get_color = |idx: usize| -> [f32; 3] {
@@ -229,34 +198,38 @@ impl SidechainRenderer {
         }
     }
 
-    /// Update sidechain geometry (no frustum culling).
-    #[allow(dead_code)] // API surface, not yet called by engine
-    pub(crate) fn update(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        sidechain: &SidechainView,
-    ) {
-        self.update_with_frustum(device, queue, sidechain, None, None);
-    }
-
-    /// Update sidechain geometry with frustum culling.
+    /// Re-upload the subset of already-prepared capsules whose bounding
+    /// sphere intersects the camera frustum. This is a pure filter: each
+    /// survivor keeps its color and global pick id verbatim, so no color
+    /// or visibility is re-derived here.
     pub(crate) fn update_with_frustum(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        sidechain: &SidechainView,
-        frustum: Option<&Frustum>,
-        per_residue_colors: Option<&[[f32; 3]]>,
+        prepared: &[CapsuleInstance],
+        frustum: &Frustum,
     ) {
-        let instances = Self::generate_instances(
-            sidechain,
-            frustum,
-            None,
-            per_residue_colors,
-        );
+        let visible: Vec<CapsuleInstance> = prepared
+            .iter()
+            .copied()
+            .filter(|c| {
+                let pos_a = Vec3::new(
+                    c.endpoint_a[0],
+                    c.endpoint_a[1],
+                    c.endpoint_a[2],
+                );
+                let pos_b = Vec3::new(
+                    c.endpoint_b[0],
+                    c.endpoint_b[1],
+                    c.endpoint_b[2],
+                );
+                let center = (pos_a + pos_b) * 0.5;
+                let half_len = (pos_a - pos_b).length() * 0.5;
+                frustum.intersects_sphere(center, half_len + CULL_RADIUS)
+            })
+            .collect();
 
-        let _ = self.pass.write_instances(device, queue, &instances);
+        let _ = self.pass.write_instances(device, queue, &visible);
     }
 
     /// Draw sidechain capsules into the given render pass.
