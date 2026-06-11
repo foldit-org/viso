@@ -69,7 +69,7 @@ pub(crate) fn dispatch_engine_action(
             field,
             value,
         } => {
-            apply_entity_appearance_field(engine, entity_id, &field, &value);
+            engine.apply_entity_appearance_field(entity_id, &field, &value);
             push_scene_entities(engine, host);
             None
         }
@@ -256,24 +256,27 @@ fn apply_density_option(
     }
 }
 
-/// Apply a single per-entity appearance override field.
-fn apply_entity_appearance_field(
-    engine: &mut VisoEngine,
-    entity_id: u32,
-    field: &str,
-    value: &serde_json::Value,
-) {
-    let Some(eid) = engine.entity_id(entity_id) else {
-        return;
-    };
-    let mut ovr = engine.entity_appearance(eid).cloned().unwrap_or_default();
-    if let Err(unknown) = ovr.apply_json_field(field, value) {
-        log::warn!("Unknown entity appearance field: {unknown}");
-        return;
-    }
-    if ovr.is_empty() {
-        engine.clear_entity_appearance(eid);
-    } else {
-        engine.set_entity_appearance(eid, ovr);
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    /// Guard the serialize -> patch -> deserialize path for the nested
+    /// `display.bonds` pointer. `patch_options_json` and the round-trip
+    /// are module-private, so this lives here rather than calling the
+    /// GPU-backed `apply_set_option`.
+    #[test]
+    fn patch_then_roundtrip_bonds_toggle() {
+        let mut root = serde_json::to_value(VisoOptions::default()).unwrap();
+        patch_options_json(
+            &mut root,
+            "display.bonds.hydrogen_bonds",
+            "visible",
+            json!(true),
+        );
+        let opts = serde_json::from_value::<VisoOptions>(root).unwrap();
+        assert!(opts.display.bonds.hydrogen_bonds.visible);
     }
 }

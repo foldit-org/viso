@@ -56,9 +56,9 @@ impl Default for LightingOptions {
             rim_intensity: 0.3,
             rim_directionality: 0.3,
             rim_color: [1.0, 0.85, 0.7],
-            ibl_strength: 0.6,
-            roughness: 0.35,
-            metalness: 0.15,
+            ibl_strength: 0.5,
+            roughness: 0.5,
+            metalness: 0.5,
         }
     }
 }

@@ -62,6 +62,8 @@ pub(crate) struct GlobalsChange {
     pub(crate) ions: bool,
     /// Solvent visibility toggled.
     pub(crate) solvent: bool,
+    /// Structural bond options (`options.display.bonds`) changed.
+    pub(crate) bonds: bool,
 }
 
 impl GlobalsChange {
@@ -78,6 +80,7 @@ impl GlobalsChange {
             waters: old.display.show_waters != new.display.show_waters,
             ions: old.display.show_ions != new.display.show_ions,
             solvent: old.display.show_solvent != new.display.show_solvent,
+            bonds: old.display.bonds != new.display.bonds,
         }
     }
 
@@ -96,6 +99,7 @@ impl GlobalsChange {
             waters,
             ions,
             solvent,
+            bonds,
         } = *self;
         lighting
             || post_processing
@@ -107,6 +111,7 @@ impl GlobalsChange {
             || waters
             || ions
             || solvent
+            || bonds
     }
 }
 
@@ -238,11 +243,16 @@ impl VisoEngine {
                 &self.surface_regen,
             );
         }
-        // Single final sync for geometry changes only. A color-only
-        // invalidation already uploaded its result in the `RE_COLOR`
-        // arm above (`recompute_backbone_colors` writes the per-residue
-        // color buffer directly), so it must not submit a scene rebuild.
-        if inv.contains(RenderInvalidation::RE_MESH) {
+        // Single final sync for geometry and structural-bond changes. A
+        // color-only invalidation already uploaded its result in the
+        // `RE_COLOR` arm above (`recompute_backbone_colors` writes the
+        // per-residue color buffer directly), so it must not submit a
+        // scene rebuild. A `display.bonds` change has no
+        // `RenderInvalidation` flag of its own — the full rebuild here
+        // re-resolves and re-uploads structural bonds with the new flags.
+        // Folding it into this single condition keeps a combined
+        // mesh+bonds change to one sync.
+        if inv.contains(RenderInvalidation::RE_MESH) || globals.bonds {
             self.sync_scene_to_renderers(HashMap::new());
         }
     }
@@ -392,5 +402,111 @@ impl VisoEngine {
                 state.drawing_mode = resolved;
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::options::PresentMode;
+
+    /// Direct regression guard: a `display.bonds` toggle must register as
+    /// a global change. Before bonds were added to `GlobalsChange`, this
+    /// diff reported `any() == false` and `set_options` silently dropped
+    /// the new value.
+    #[test]
+    fn globals_change_detects_bonds() {
+        let a = VisoOptions::default();
+        let mut b = a.clone();
+        b.display.bonds.hydrogen_bonds.visible = true;
+        assert!(GlobalsChange::diff(&a, &b).any());
+    }
+
+    /// Coverage guard against future "silently dropped control"
+    /// regressions: every `GlobalsChange`-owned category must surface a
+    /// single-field mutation as a change. Override-driven `display`
+    /// fields are diffed separately via `overrides.diff`, so they are not
+    /// asserted here.
+    #[test]
+    fn globals_change_detects_each_category() {
+        let base = VisoOptions::default();
+
+        let mut lighting = base.clone();
+        lighting.lighting.light1_intensity += 1.0;
+        assert!(
+            GlobalsChange::diff(&base, &lighting).any(),
+            "lighting change not detected"
+        );
+
+        let mut post = base.clone();
+        post.post_processing.outline_thickness += 1.0;
+        assert!(
+            GlobalsChange::diff(&base, &post).any(),
+            "post_processing change not detected"
+        );
+
+        let mut camera = base.clone();
+        camera.camera.fovy += 1.0;
+        assert!(
+            GlobalsChange::diff(&base, &camera).any(),
+            "camera change not detected"
+        );
+
+        let mut debug = base.clone();
+        debug.debug.show_normals = !debug.debug.show_normals;
+        assert!(
+            GlobalsChange::diff(&base, &debug).any(),
+            "debug change not detected"
+        );
+
+        let mut geometry = base.clone();
+        geometry.geometry.sheet_arrows = !geometry.geometry.sheet_arrows;
+        assert!(
+            GlobalsChange::diff(&base, &geometry).any(),
+            "geometry change not detected"
+        );
+
+        let mut colors = base.clone();
+        colors.colors.lipid_carbon_tint[0] += 0.5;
+        assert!(
+            GlobalsChange::diff(&base, &colors).any(),
+            "colors change not detected"
+        );
+
+        let mut present_mode = base.clone();
+        present_mode.display.present_mode = PresentMode::Immediate;
+        assert!(
+            GlobalsChange::diff(&base, &present_mode).any(),
+            "present_mode change not detected"
+        );
+
+        let mut waters = base.clone();
+        waters.display.show_waters = !waters.display.show_waters;
+        assert!(
+            GlobalsChange::diff(&base, &waters).any(),
+            "show_waters change not detected"
+        );
+
+        let mut ions = base.clone();
+        ions.display.show_ions = !ions.display.show_ions;
+        assert!(
+            GlobalsChange::diff(&base, &ions).any(),
+            "show_ions change not detected"
+        );
+
+        let mut solvent = base.clone();
+        solvent.display.show_solvent = !solvent.display.show_solvent;
+        assert!(
+            GlobalsChange::diff(&base, &solvent).any(),
+            "show_solvent change not detected"
+        );
+
+        let mut bonds = base.clone();
+        bonds.display.bonds.hydrogen_bonds.visible = true;
+        assert!(
+            GlobalsChange::diff(&base, &bonds).any(),
+            "bonds change not detected"
+        );
     }
 }

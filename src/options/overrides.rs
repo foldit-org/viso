@@ -6,6 +6,7 @@
 //! back to the user's global overrides, which fall back to built-in
 //! defaults. Same type is used at both scopes.
 
+use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -17,46 +18,105 @@ use super::geometry::GeometryOptions;
 use super::palette::{PaletteMode, PalettePreset};
 use super::DisplayOptions;
 
+// Schema-default providers for the `Option<Enum>` override fields. Each
+// returns the Rust `#[default]` variant wrapped in `Some`, so the schema
+// emitted for the settings panel advertises the same default the engine
+// resolves to when the slot is `None`. The outer `Option` is required:
+// the bare-enum form does not satisfy the `skip_serializing_if =
+// "Option::is_none"` guard on these fields, so the always-`Some` shape is
+// load-bearing rather than reducible.
+#[allow(clippy::unnecessary_wraps)]
+fn default_drawing_mode() -> Option<DrawingMode> {
+    Some(DrawingMode::default())
+}
+#[allow(clippy::unnecessary_wraps)]
+fn default_color_scheme() -> Option<ColorScheme> {
+    Some(ColorScheme::default())
+}
+#[allow(clippy::unnecessary_wraps)]
+fn default_surface_kind() -> Option<SurfaceKindOption> {
+    Some(SurfaceKindOption::default())
+}
+#[allow(clippy::unnecessary_wraps)]
+fn default_helix_style() -> Option<HelixStyle> {
+    Some(HelixStyle::default())
+}
+#[allow(clippy::unnecessary_wraps)]
+fn default_sheet_style() -> Option<SheetStyle> {
+    Some(SheetStyle::default())
+}
+#[allow(clippy::unnecessary_wraps)]
+fn default_sidechain_color_mode() -> Option<SidechainColorMode> {
+    Some(SidechainColorMode::default())
+}
+#[allow(clippy::unnecessary_wraps)]
+fn default_na_color_mode() -> Option<NaColorMode> {
+    Some(NaColorMode::default())
+}
+#[allow(clippy::unnecessary_wraps)]
+fn default_lipid_mode() -> Option<LipidMode> {
+    Some(LipidMode::default())
+}
+#[allow(clippy::unnecessary_wraps)]
+fn default_palette_preset() -> Option<PalettePreset> {
+    Some(PalettePreset::default())
+}
+#[allow(clippy::unnecessary_wraps)]
+fn default_palette_mode() -> Option<PaletteMode> {
+    Some(PaletteMode::default())
+}
+
 /// Bag of optional display overrides. Used at both global and per-entity
 /// scope; `None` means "inherit from the next level up."
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Default, JsonSchema,
+)]
 #[serde(default)]
 pub struct DisplayOverrides {
     /// Top-level drawing mode (Cartoon / Stick / BallAndStick).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(default = "default_drawing_mode")]
     pub drawing_mode: Option<DrawingMode>,
     /// What property drives backbone coloring.
     #[serde(
         skip_serializing_if = "Option::is_none",
         alias = "backbone_color_scheme"
     )]
+    #[schemars(default = "default_color_scheme")]
     pub color_scheme: Option<ColorScheme>,
     /// Whether to render amino acid sidechains.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show_sidechains: Option<bool>,
     /// Molecular surface type (None / Gaussian / SES).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(default = "default_surface_kind")]
     pub surface_kind: Option<SurfaceKindOption>,
     /// Surface opacity (alpha channel, 0.0–1.0).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0.0, max = 1.0))]
     pub surface_opacity: Option<f32>,
     /// Whether to render internal cavity meshes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show_cavities: Option<bool>,
     /// Helix rendering style within Cartoon mode.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(default = "default_helix_style")]
     pub helix_style: Option<HelixStyle>,
     /// Sheet rendering style within Cartoon mode.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(default = "default_sheet_style")]
     pub sheet_style: Option<SheetStyle>,
     /// Sidechain coloring strategy.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(default = "default_sidechain_color_mode")]
     pub sidechain_color_mode: Option<SidechainColorMode>,
     /// Nucleic acid coloring strategy.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(default = "default_na_color_mode")]
     pub na_color_mode: Option<NaColorMode>,
     /// Lipid rendering style.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(default = "default_lipid_mode")]
     pub lipid_mode: Option<LipidMode>,
     /// Whether to render hydrogen atoms.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,26 +126,32 @@ pub struct DisplayOverrides {
         skip_serializing_if = "Option::is_none",
         alias = "backbone_palette_preset"
     )]
+    #[schemars(default = "default_palette_preset")]
     pub palette_preset: Option<PalettePreset>,
     /// How backbone palette colors are distributed.
     #[serde(
         skip_serializing_if = "Option::is_none",
         alias = "backbone_palette_mode"
     )]
+    #[schemars(default = "default_palette_mode")]
     pub palette_mode: Option<PaletteMode>,
 
     // --- Structural bond overrides ---
     /// Whether to show hydrogen bonds for this entity.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub show_hbonds: Option<bool>,
     /// Visual style for hydrogen bonds.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub hbond_style: Option<BondStyle>,
     /// Whether to show disulfide bonds for this entity.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub show_disulfides: Option<bool>,
     /// Visual style for disulfide bonds.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub disulfide_style: Option<BondStyle>,
 }
 
@@ -373,6 +439,21 @@ impl DisplayOverrides {
             }
             "disulfide_style" => {
                 self.disulfide_style = parse_field(value, field)?;
+            }
+            "show_cavities" => {
+                self.show_cavities = parse_bool_field(value, field)?;
+            }
+            "show_hydrogens" => {
+                self.show_hydrogens = parse_bool_field(value, field)?;
+            }
+            "sidechain_color_mode" => {
+                self.sidechain_color_mode = parse_field(value, field)?;
+            }
+            "na_color_mode" => {
+                self.na_color_mode = parse_field(value, field)?;
+            }
+            "lipid_mode" => {
+                self.lipid_mode = parse_field(value, field)?;
             }
             _ => return Err(field),
         }

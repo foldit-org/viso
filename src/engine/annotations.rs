@@ -172,21 +172,24 @@ pub(crate) fn resolve_drawing_mode(
 
 impl EntityAnnotations {
     /// Clear annotation state back to the default (focus session-wide,
-    /// every map emptied) EXCEPT per-entity scores.
+    /// every map emptied) EXCEPT per-entity scores and appearance
+    /// overrides.
     ///
-    /// Scores deliberately survive `reset`. A per-publish topology swap
-    /// (`replace_assembly`) routes through here; blanket-clearing the
-    /// score map would blank the surviving committed entities for the one
-    /// frame between the reset and the recolor (a gray flash). Membership
-    /// is instead reconciled by [`Self::retain_entities`] on the next
-    /// sync, which drops only the entities that actually left the
-    /// assembly. Genuine teardown, where the next topology may reuse
-    /// entity ids, must drop scores explicitly via [`Self::clear_scores`].
+    /// Scores and appearance deliberately survive `reset`. A per-publish
+    /// topology swap (`replace_assembly`) routes through here;
+    /// blanket-clearing either map would blank the surviving committed
+    /// entities for the one frame between the reset and the recolor (a
+    /// gray flash), and would drop user-authored per-entity appearance on
+    /// every republish. Membership is instead reconciled by
+    /// [`Self::retain_entities`] on the next sync, which drops only the
+    /// entities that actually left the assembly. Genuine teardown, where
+    /// the next topology may reuse entity ids, must drop scores explicitly
+    /// via [`Self::clear_scores`] and appearance via
+    /// [`VisoEngine::clear_all_appearance`].
     pub(crate) fn reset(&mut self) {
         self.focus = Focus::default();
         self.visibility.clear();
         self.behaviors.clear();
-        self.appearance.clear();
         self.ss_overrides.clear();
         self.surfaces.clear();
     }
@@ -519,6 +522,23 @@ impl VisoEngine {
         self.apply_entity_invalidation(RenderInvalidation::RE_COLOR);
     }
 
+    /// Drop every per-entity appearance override and repaint.
+    ///
+    /// Appearance overrides survive a per-publish `replace_assembly`
+    /// (reconciled by id on the next sync) so user-authored per-entity
+    /// settings persist across republishes. A genuine teardown / reload is
+    /// different: the next topology may reuse entity ids, so the host must
+    /// clear appearance explicitly here or a reused id inherits the
+    /// previous molecule's overrides. The symmetric counterpart to
+    /// [`Self::clear_scores`]. Distinct from the per-entity
+    /// `clear_appearance`, which drops a single id.
+    pub fn clear_all_appearance(&mut self) {
+        self.annotations.appearance.clear();
+        self.apply_entity_invalidation(
+            RenderInvalidation::RE_COLOR | RenderInvalidation::RE_MESH,
+        );
+    }
+
     /// Set an SS override for an entity. The override is engine-side
     /// state and replaces DSSP-derived secondary structure for
     /// rendering only — it does not mutate the
@@ -670,6 +690,34 @@ impl VisoEngine {
         self.apply_entity_invalidation(inv);
     }
 
+    /// Apply a single per-entity appearance override field, keyed by raw id.
+    ///
+    /// Resolves the raw id, merges `field`/`value` into the entity's current
+    /// overrides via [`DisplayOverrides::apply_json_field`], then either
+    /// clears the entry (if the merge left it empty) or stores it back. An
+    /// unknown field is logged and skipped. Shared by the bridge dispatch and
+    /// the host command path so both edit appearance through one code path.
+    pub fn apply_entity_appearance_field(
+        &mut self,
+        entity_id: u32,
+        field: &str,
+        value: &serde_json::Value,
+    ) {
+        let Some(eid) = self.entity_id(entity_id) else {
+            return;
+        };
+        let mut ovr = self.entity_appearance(eid).cloned().unwrap_or_default();
+        if let Err(unknown) = ovr.apply_json_field(field, value) {
+            log::warn!("Unknown entity appearance field: {unknown}");
+            return;
+        }
+        if ovr.is_empty() {
+            self.clear_entity_appearance(eid);
+        } else {
+            self.set_entity_appearance(eid, ovr);
+        }
+    }
+
     /// Look up a per-entity appearance override.
     #[must_use]
     pub fn entity_appearance(
@@ -688,5 +736,36 @@ impl VisoEngine {
     ) -> DrawingMode {
         self.annotations
             .resolved_drawing_mode(&self.options, eid, mol_type)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::ColorScheme;
+
+    #[test]
+    fn appearance_survives_reset_and_reconciles_by_retain() {
+        let mut ann = EntityAnnotations::default();
+        let keep_id = EntityId::from_raw(0);
+        let drop_id = EntityId::from_raw(1);
+        let kept = DisplayOverrides {
+            color_scheme: Some(ColorScheme::BFactor),
+            ..Default::default()
+        };
+        let _ = ann.appearance.insert(keep_id, kept.clone());
+        let _ = ann.appearance.insert(drop_id, DisplayOverrides::default());
+
+        // A per-publish topology swap routes through reset; appearance
+        // must survive it (only membership reconciliation drops entries).
+        ann.reset();
+        assert_eq!(ann.appearance.get(&keep_id), Some(&kept));
+        assert!(ann.appearance.contains_key(&drop_id));
+
+        // retain_entities reconciles by id: the departed entity's override
+        // is dropped, the surviving one's is kept.
+        ann.retain_entities(|id| id == keep_id);
+        assert_eq!(ann.appearance.get(&keep_id), Some(&kept));
+        assert!(!ann.appearance.contains_key(&drop_id));
     }
 }

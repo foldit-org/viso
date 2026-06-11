@@ -324,6 +324,11 @@ pub(crate) fn entity_summaries(engine: &VisoEngine) -> Vec<serde_json::Value> {
                 "surface_color": effective_surface_color(engine, raw_id),
                 "helix_style": resolved_display.helix_style(),
                 "sheet_style": resolved_display.sheet_style(),
+                "show_cavities": resolved_display.show_cavities(),
+                "sidechain_color_mode": resolved_display.sidechain_color_mode(),
+                "na_color_mode": resolved_display.na_color_mode(),
+                "lipid_mode": resolved_display.lipid_mode(),
+                "show_hydrogens": resolved_display.show_hydrogens(),
                 "has_overrides": has_overrides,
             });
             if let Some(ovr_val) = ovr {

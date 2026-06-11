@@ -53,9 +53,7 @@ use crate::error::VisoError;
 )]
 #[serde(default)]
 pub struct VisoOptions {
-    /// Display toggles and coloring modes (rendered in Scene tab, not Options
-    /// tab).
-    #[schemars(skip)]
+    /// Display toggles and coloring modes.
     pub display: DisplayOptions,
     /// Lighting parameters.
     pub lighting: LightingOptions,
@@ -182,13 +180,30 @@ shininess = 80.0
         assert!(props.contains_key("post_processing"));
         assert!(props.contains_key("camera"));
 
-        // Skipped sections should be absent (display is now Scene tab)
-        assert!(!props.contains_key("display"));
+        // display is now exposed; colors is still hidden.
+        assert!(props.contains_key("display"));
         assert!(!props.contains_key("colors"));
 
         // Geometry and debug should be present (exposed in UI)
         assert!(props.contains_key("geometry"));
         assert!(props.contains_key("debug"));
+
+        // The un-hidden override fields appear as flat sibling properties of
+        // display (proof that #[serde(flatten)] produced flat siblings, not a
+        // nested sub-object).
+        let display = &props["display"]["properties"];
+        assert!(display.get("color_scheme").is_some());
+        assert!(display.get("show_cavities").is_some());
+        assert!(display.get("surface_opacity").is_some());
+        assert!(display.get("drawing_mode").is_some());
+        // backbone_color_mode stays hidden via #[schemars(skip)].
+        assert!(display.get("backbone_color_mode").is_none());
+
+        // surface_opacity carries minimum/maximum so the GUI renders it as a
+        // slider.
+        let opacity = &display["surface_opacity"];
+        assert_eq!(opacity["minimum"], serde_json::json!(0.0));
+        assert_eq!(opacity["maximum"], serde_json::json!(1.0));
 
         // Lighting should have exposed fields but not skipped ones
         let lighting = &props["lighting"]["properties"];
@@ -196,5 +211,26 @@ shininess = 80.0
         assert!(lighting.get("ambient").is_some());
         assert!(lighting.get("light1_dir").is_none());
         assert!(lighting.get("specular_intensity").is_none());
+    }
+
+    #[test]
+    fn display_override_fields_round_trip_through_json() {
+        // The real apply boundary (foldit-core app/load.rs) deserializes a
+        // VisoOptions from a serde_json::Value, so exercise that path: a
+        // payload carrying several flattened display override fields must
+        // deserialize losslessly.
+        let value = serde_json::json!({
+            "display": {
+                "drawing_mode": "stick",
+                "color_scheme": "b_factor",
+                "surface_opacity": 0.5,
+                "show_cavities": true,
+            }
+        });
+        let opts: VisoOptions = serde_json::from_value(value).unwrap();
+        assert_eq!(opts.display.drawing_mode(), DrawingMode::Stick);
+        assert_eq!(opts.display.backbone_color_scheme(), ColorScheme::BFactor);
+        assert_eq!(opts.display.surface_opacity(), 0.5);
+        assert!(opts.display.show_cavities());
     }
 }

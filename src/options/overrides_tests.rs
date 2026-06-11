@@ -312,3 +312,142 @@ fn apply_json_unknown_field_errs() {
     let r = o.apply_json_field("not_a_field", &serde_json::json!(true));
     assert_eq!(r, Err("not_a_field"));
 }
+
+#[test]
+fn apply_json_show_cavities_contract() {
+    let mut o = DisplayOverrides {
+        show_cavities: Some(true),
+        ..Default::default()
+    };
+    // null clears
+    assert!(o
+        .apply_json_field("show_cavities", &serde_json::Value::Null)
+        .is_ok());
+    assert_eq!(o.show_cavities, None);
+    // valid sets
+    assert!(o
+        .apply_json_field("show_cavities", &serde_json::json!(true))
+        .is_ok());
+    assert_eq!(o.show_cavities, Some(true));
+    // malformed errs and preserves
+    let r = o.apply_json_field("show_cavities", &serde_json::json!("yes"));
+    assert_eq!(r, Err("show_cavities"));
+    assert_eq!(o.show_cavities, Some(true));
+}
+
+#[test]
+fn apply_json_show_hydrogens_contract() {
+    let mut o = DisplayOverrides {
+        show_hydrogens: Some(true),
+        ..Default::default()
+    };
+    assert!(o
+        .apply_json_field("show_hydrogens", &serde_json::Value::Null)
+        .is_ok());
+    assert_eq!(o.show_hydrogens, None);
+    assert!(o
+        .apply_json_field("show_hydrogens", &serde_json::json!(true))
+        .is_ok());
+    assert_eq!(o.show_hydrogens, Some(true));
+    let r = o.apply_json_field("show_hydrogens", &serde_json::json!(3));
+    assert_eq!(r, Err("show_hydrogens"));
+    assert_eq!(o.show_hydrogens, Some(true));
+}
+
+#[test]
+fn apply_json_sidechain_color_mode_contract() {
+    let mut o = DisplayOverrides {
+        sidechain_color_mode: Some(SidechainColorMode::Backbone),
+        ..Default::default()
+    };
+    assert!(o
+        .apply_json_field("sidechain_color_mode", &serde_json::Value::Null)
+        .is_ok());
+    assert_eq!(o.sidechain_color_mode, None);
+    assert!(o
+        .apply_json_field(
+            "sidechain_color_mode",
+            &serde_json::json!("hydrophobicity")
+        )
+        .is_ok());
+    assert_eq!(
+        o.sidechain_color_mode,
+        Some(SidechainColorMode::Hydrophobicity)
+    );
+    let r = o.apply_json_field(
+        "sidechain_color_mode",
+        &serde_json::json!("not_a_variant"),
+    );
+    assert_eq!(r, Err("sidechain_color_mode"));
+    assert_eq!(
+        o.sidechain_color_mode,
+        Some(SidechainColorMode::Hydrophobicity)
+    );
+}
+
+#[test]
+fn apply_json_na_color_mode_contract() {
+    let mut o = DisplayOverrides {
+        na_color_mode: Some(NaColorMode::BaseColor),
+        ..Default::default()
+    };
+    assert!(o
+        .apply_json_field("na_color_mode", &serde_json::Value::Null)
+        .is_ok());
+    assert_eq!(o.na_color_mode, None);
+    assert!(o
+        .apply_json_field("na_color_mode", &serde_json::json!("uniform"))
+        .is_ok());
+    assert_eq!(o.na_color_mode, Some(NaColorMode::Uniform));
+    let r = o
+        .apply_json_field("na_color_mode", &serde_json::json!("not_a_variant"));
+    assert_eq!(r, Err("na_color_mode"));
+    assert_eq!(o.na_color_mode, Some(NaColorMode::Uniform));
+}
+
+#[test]
+fn apply_json_lipid_mode_contract() {
+    let mut o = DisplayOverrides {
+        lipid_mode: Some(LipidMode::Coarse),
+        ..Default::default()
+    };
+    assert!(o
+        .apply_json_field("lipid_mode", &serde_json::Value::Null)
+        .is_ok());
+    assert_eq!(o.lipid_mode, None);
+    assert!(o
+        .apply_json_field("lipid_mode", &serde_json::json!("ball_and_stick"))
+        .is_ok());
+    assert_eq!(o.lipid_mode, Some(LipidMode::BallAndStick));
+    let r =
+        o.apply_json_field("lipid_mode", &serde_json::json!("not_a_variant"));
+    assert_eq!(r, Err("lipid_mode"));
+    assert_eq!(o.lipid_mode, Some(LipidMode::BallAndStick));
+}
+
+#[test]
+fn color_scheme_serde_round_trip_does_not_self_brick() {
+    // Regression guard: `color_scheme` carries a serde alias
+    // (`backbone_color_scheme`). Serialization must emit exactly one key,
+    // and the round-trip must deserialize cleanly so a subsequent option
+    // set is not bricked by a duplicate flattened field.
+    let o = DisplayOverrides {
+        color_scheme: Some(ColorScheme::BFactor),
+        show_sidechains: Some(true),
+        ..Default::default()
+    };
+    let json = serde_json::to_value(&o).unwrap();
+    let obj = json.as_object().unwrap();
+    assert!(obj.contains_key("color_scheme"));
+    assert!(!obj.contains_key("backbone_color_scheme"));
+
+    let back: DisplayOverrides = serde_json::from_value(json).unwrap();
+    assert_eq!(back, o);
+
+    // A subsequent apply on the round-tripped value still works.
+    let mut back = back;
+    assert!(back
+        .apply_json_field("color_scheme", &serde_json::json!("entity"))
+        .is_ok());
+    assert_eq!(back.color_scheme, Some(ColorScheme::Entity));
+}

@@ -114,8 +114,7 @@ fn global_appearance_section(options: &Option<Value>) -> Element {
     let opts = options.as_ref();
 
     let drawing_mode = display_str(opts, "drawing_mode", "cartoon").to_owned();
-    let color_scheme =
-        display_str(opts, "backbone_color_scheme", "chain").to_owned();
+    let color_scheme = display_str(opts, "color_scheme", "entity").to_owned();
     let show_sidechains = display_bool(opts, "show_sidechains", true);
     let surface_kind = display_str(opts, "surface_kind", "none").to_owned();
     let surface_opacity = display_f64(opts, "surface_opacity", 0.35);
@@ -143,7 +142,7 @@ fn global_appearance_section(options: &Option<Value>) -> Element {
                   ("thin_stick", "Thin Stick"), ("ball_and_stick", "Ball & Stick")],
             )}
             {global_select(
-                "Color", "backbone_color_scheme", &color_scheme,
+                "Color", "color_scheme", &color_scheme,
                 &[("entity", "Entity"),
                   ("secondary_structure", "Secondary Structure"),
                   ("residue_index", "Residue Index"),
@@ -463,37 +462,6 @@ fn entity_row(
     let has_surface_ovr = ovr
         .and_then(|o| o.get("surface_kind"))
         .is_some_and(|v| !v.is_null());
-    let has_hbond_ovr = ovr
-        .and_then(|o| o.get("show_hbonds"))
-        .is_some_and(|v| !v.is_null());
-    let has_hbond_style_ovr = ovr
-        .and_then(|o| o.get("hbond_style"))
-        .is_some_and(|v| !v.is_null());
-    let has_disulfide_ovr = ovr
-        .and_then(|o| o.get("show_disulfides"))
-        .is_some_and(|v| !v.is_null());
-    let has_disulfide_style_ovr = ovr
-        .and_then(|o| o.get("disulfide_style"))
-        .is_some_and(|v| !v.is_null());
-
-    let show_hbonds = entity
-        .get("show_hbonds")
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
-    let hbond_style = entity
-        .get("hbond_style")
-        .and_then(Value::as_str)
-        .unwrap_or("solid")
-        .to_owned();
-    let show_disulfides = entity
-        .get("show_disulfides")
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
-    let disulfide_style = entity
-        .get("disulfide_style")
-        .and_then(Value::as_str)
-        .unwrap_or("solid")
-        .to_owned();
 
     let is_cartoon_capable = matches!(mol_type, "Protein" | "DNA" | "RNA");
     let is_protein = mol_type == "Protein";
@@ -654,27 +622,6 @@ fn entity_row(
                     {entity_appearance_toggle(
                         id, "Sidechains", "show_sidechains",
                         show_sidechains, has_sc_ovr,
-                    )}
-                }
-                // Bond overrides (protein only)
-                if is_protein {
-                    {entity_appearance_toggle(
-                        id, "H-Bonds", "show_hbonds",
-                        show_hbonds, has_hbond_ovr,
-                    )}
-                    {entity_appearance_select(
-                        id, "H-Bond Style", "hbond_style", &hbond_style,
-                        has_hbond_style_ovr,
-                        &[("solid", "Solid"), ("dashed", "Dashed"), ("stippled", "Stippled")],
-                    )}
-                    {entity_appearance_toggle(
-                        id, "Disulfides", "show_disulfides",
-                        show_disulfides, has_disulfide_ovr,
-                    )}
-                    {entity_appearance_select(
-                        id, "Disulfide Style", "disulfide_style", &disulfide_style,
-                        has_disulfide_style_ovr,
-                        &[("solid", "Solid"), ("dashed", "Dashed"), ("stippled", "Stippled")],
                     )}
                 }
                 if has_overrides {

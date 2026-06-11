@@ -62,6 +62,7 @@ pub struct BondTypeOptions {
     /// Visual rendering style.
     pub style: BondStyle,
     /// Base radius in Angstroms.
+    #[schemars(range(min = 0.0, max = 0.5))]
     pub radius: f32,
     /// How bonds are sourced (auto-detect, manual, or both).
     pub source: BondSource,
@@ -355,6 +356,7 @@ impl PresentMode {
     Debug, Clone, Serialize, Deserialize, PartialEq, Default, JsonSchema,
 )]
 #[serde(default)]
+#[schemars(title = "Display", inline)]
 #[allow(clippy::struct_excessive_bools)]
 /// Display toggles and coloring mode selections.
 ///
@@ -367,9 +369,6 @@ impl PresentMode {
 /// The same [`super::DisplayOverrides`] type is used at per-entity scope
 /// (via `DisplayOverrides::overlay`). `None` at either scope falls through
 /// to the next layer (entity → global → built-in defaults).
-///
-/// Rendered in the Scene tab's Global Appearance card, not the Options
-/// tab (hence `#[schemars(skip)]` at struct level).
 pub struct DisplayOptions {
     // --- Ambient visibility (type-level toggles, not per-entity) ---
     /// Whether to render water molecules.
@@ -390,13 +389,13 @@ pub struct DisplayOptions {
     // --- Legacy ---
     /// Backbone coloring strategy (legacy field — prefer
     /// `overrides.color_scheme`).
+    #[schemars(skip)]
     pub backbone_color_mode: BackboneColorMode,
 
     // --- Per-entity overridable fields (flattened for TOML compat) ---
     /// User's global display preferences, expressed as a bag of
     /// overrides. `None` fields fall through to built-in defaults.
     #[serde(flatten)]
-    #[schemars(skip)]
     pub overrides: super::DisplayOverrides,
 }
 
