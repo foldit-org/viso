@@ -2,7 +2,7 @@
 #import viso::lighting::{LightingUniform, compute_rim}
 #import viso::shade::{shade_geometry, ShadingResult}
 #import viso::constants::MAX_IBL_MIP
-#import viso::cavity::{cavity_displacement, ISO_KIND_CAVITY}
+#import viso::cavity::{cavity_displacement, ISO_KIND_CAVITY, ISO_KIND_SURFACE}
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -100,11 +100,17 @@ fn fs_main(in: VertexOutput) -> FragOutput {
         absorption = 0.10;
     }
     let opacity = 1.0 - exp(-thickness * absorption);
-    // The slider (baked into vertex_color.a) scales the volumetric
-    // Beer-Lambert absorption at low/mid values but reaches fully opaque
-    // at 1.0: the absorption factor is mixed toward 1.0 as the slider
-    // rises, so a maxed slider renders the surface solid.
-    final_alpha = in.vertex_color.a * mix(opacity, 1.0, in.vertex_color.a);
+    // For molecular surfaces, a sentinel (negative) baked alpha means "use the
+    // global surface-opacity uniform"; a non-negative baked alpha is a per-entity
+    // absolute opacity and is used as-is. Cavities and density keep their baked alpha.
+    // The opacity factor scales the volumetric Beer-Lambert absorption at
+    // low/mid values but reaches fully opaque at 1.0: the absorption factor is
+    // mixed toward 1.0 as the factor rises, so a maxed slider renders solid.
+    var a = in.vertex_color.a;
+    if (in.kind == ISO_KIND_SURFACE) {
+        a = select(in.vertex_color.a, lighting.surface_opacity, in.vertex_color.a < 0.0);
+    }
+    final_alpha = a * mix(opacity, 1.0, a);
 
     // Cavity-specific rim, layered over the PBR pass. At the silhouette
     // thickness ≈ 0 so the Beer-Lambert opacity also ≈ 0, which would

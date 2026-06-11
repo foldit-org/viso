@@ -243,6 +243,12 @@ impl VisoEngine {
                 &self.surface_regen,
             );
         }
+        if inv.contains(RenderInvalidation::RE_SURFACE_OPACITY) {
+            // Global surface opacity is a shader uniform, so a slider drag
+            // is a cheap queue write with no mesh regeneration.
+            self.gpu
+                .set_surface_opacity(self.options.display.surface_opacity());
+        }
         // Single final sync for geometry and structural-bond changes. A
         // color-only invalidation already uploaded its result in the
         // `RE_COLOR` arm above (`recompute_backbone_colors` writes the
@@ -289,7 +295,11 @@ impl VisoEngine {
             let camera_eye = self.camera_controller.camera.eye;
             self.submit_per_chain_lod_remesh(camera_eye);
         }
-        if inv.contains(RenderInvalidation::RE_SURFACE) {
+        // Per-entity opacity is baked into vertex alpha, so a per-entity
+        // opacity change re-meshes just like a kind/cavities change.
+        if inv.contains(RenderInvalidation::RE_SURFACE)
+            || inv.contains(RenderInvalidation::RE_SURFACE_OPACITY)
+        {
             super::surface_regen::regenerate_surfaces(
                 &self.scene,
                 &self.annotations,

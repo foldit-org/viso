@@ -175,7 +175,7 @@ impl VisoEngine {
             scene_processor.request_sender(),
             scene_processor.surface_generation_handle(),
         );
-        Ok(Self {
+        let mut engine = Self {
             gpu: GpuPipeline {
                 context,
                 renderers: bootstrap.renderers,
@@ -206,6 +206,12 @@ impl VisoEngine {
             input_state: crate::input::click_state::InputState::new(),
             mouse_pressed: false,
             shift_pressed: false,
-        })
+        };
+        // Seed the global surface-opacity uniform from the initial options
+        // so the first frame renders at the configured global opacity.
+        // Subsequent changes flow through the RE_SURFACE_OPACITY dispatch.
+        let surface_opacity = engine.options.display.surface_opacity();
+        engine.gpu.set_surface_opacity(surface_opacity);
+        Ok(engine)
     }
 }

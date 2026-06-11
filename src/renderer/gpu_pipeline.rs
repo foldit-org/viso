@@ -393,6 +393,14 @@ impl GpuPipeline {
         self.lighting.apply_options(lo, &self.context.queue);
     }
 
+    /// Set the global molecular-surface opacity uniform and write it to
+    /// the GPU immediately. Cheap per-tick write for the global surface
+    /// opacity slider — no mesh regeneration.
+    pub(crate) fn set_surface_opacity(&mut self, opacity: f32) {
+        self.lighting.uniform.surface_opacity = opacity;
+        self.lighting.update_gpu(&self.context.queue);
+    }
+
     /// Push post-processing options to the composite pass.
     pub(crate) fn apply_post_processing(&mut self, options: &VisoOptions) {
         self.post_process

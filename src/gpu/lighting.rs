@@ -46,6 +46,11 @@ pub(crate) struct LightingUniform {
     pub(crate) roughness: f32,
     /// Surface metalness (0.0 = dielectric, 1.0 = metal)
     pub(crate) metalness: f32,
+    /// Global molecular-surface opacity (1.0 = no scaling). Scales only
+    /// SURFACE-kind isosurface fragments; cavities and density maps are
+    /// unaffected. Held here so the global surface slider is a cheap
+    /// uniform write instead of a per-vertex re-bake.
+    pub(crate) surface_opacity: f32,
 }
 
 impl Default for LightingUniform {
@@ -70,6 +75,9 @@ impl Default for LightingUniform {
             rim_dir: Vec3::new(0.0, -0.7, 0.5).normalize(),
             roughness: 0.35,
             metalness: 0.15,
+            // 1.0 = no scaling; the engine seeds the real global value at
+            // construction and updates it on every surface-opacity change.
+            surface_opacity: 1.0,
         }
     }
 }

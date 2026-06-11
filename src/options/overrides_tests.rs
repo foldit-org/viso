@@ -163,6 +163,37 @@ fn diff_surface_kind_sets_re_surface() {
 }
 
 #[test]
+fn diff_surface_opacity_sets_opacity_not_surface() {
+    // Global surface opacity is a shader uniform, so an opacity-only
+    // change must fire RE_SURFACE_OPACITY (cheap uniform write at global
+    // scope) and NOT RE_SURFACE (which would re-mesh).
+    let a = DisplayOverrides::default();
+    let b = DisplayOverrides {
+        surface_opacity: Some(0.5),
+        ..Default::default()
+    };
+    let inv = a.diff(&b);
+    assert!(inv.contains(RenderInvalidation::RE_SURFACE_OPACITY));
+    assert!(!inv.contains(RenderInvalidation::RE_SURFACE));
+    assert!(!inv.contains(RenderInvalidation::RE_MESH));
+}
+
+#[test]
+fn diff_surface_kind_not_opacity() {
+    // The converse split guard: a surface_kind / show_cavities change
+    // fires RE_SURFACE but not RE_SURFACE_OPACITY.
+    let a = DisplayOverrides::default();
+    let b = DisplayOverrides {
+        surface_kind: Some(SurfaceKindOption::Gaussian),
+        show_cavities: Some(true),
+        ..Default::default()
+    };
+    let inv = a.diff(&b);
+    assert!(inv.contains(RenderInvalidation::RE_SURFACE));
+    assert!(!inv.contains(RenderInvalidation::RE_SURFACE_OPACITY));
+}
+
+#[test]
 fn diff_helix_style_sets_lod_and_mesh() {
     let a = DisplayOverrides::default();
     let b = DisplayOverrides {

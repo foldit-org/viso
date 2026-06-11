@@ -16,6 +16,7 @@ struct LightingUniform {
     rim_dir: vec3<f32>,
     roughness: f32,
     metalness: f32,
+    surface_opacity: f32,
 };
 
 // --- PBR functions ---

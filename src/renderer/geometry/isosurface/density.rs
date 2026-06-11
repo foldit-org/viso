@@ -7,7 +7,7 @@
 use molex::entity::surface::Density;
 
 use super::cpu_marching_cubes::extract_isosurface;
-use super::IsosurfaceVertex;
+use super::{isosurface_kind, IsosurfaceVertex};
 
 /// Padding in Angstroms around the structure bounding box when cropping
 /// the density map.
@@ -128,7 +128,7 @@ pub(crate) fn generate_density_mesh(
         )
     });
 
-    extract_isosurface(
+    let (mut vertices, indices) = extract_isosurface(
         data,
         dims,
         threshold,
@@ -136,5 +136,15 @@ pub(crate) fn generate_density_mesh(
         grid_max,
         |x, y, z| map.grid_to_cartesian_f32(x, y, z),
         color,
-    )
+    );
+
+    // Tag every vertex as a density mesh. The shared marching-cubes
+    // emitter hard-codes SURFACE; re-tagging here lets the isosurface
+    // shader exclude density from the molecular-surface opacity scale
+    // (density opacity comes from the entry's own baked alpha).
+    for v in &mut vertices {
+        v.kind = isosurface_kind::DENSITY;
+    }
+
+    (vertices, indices)
 }

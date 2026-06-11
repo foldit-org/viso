@@ -8,6 +8,7 @@
 // Keep these in sync — they're the per-vertex source-kind discriminator.
 const ISO_KIND_SURFACE: u32 = 0u;
 const ISO_KIND_CAVITY: u32 = 1u;
+const ISO_KIND_DENSITY: u32 = 2u;
 
 // ── Lava-lamp displacement helpers ────────────────────────────────────
 //

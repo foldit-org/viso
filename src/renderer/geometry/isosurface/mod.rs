@@ -32,12 +32,17 @@ use crate::renderer::PipelineLayouts;
 /// Values are pinned because they're mirrored verbatim in the WGSL
 /// shader (`isosurface.wgsl`).
 pub(crate) mod isosurface_kind {
-    /// Generic surface mesh — Gaussian, SES, or any future PBR-shaded
-    /// surface that doesn't need special-case effects. Default value.
+    /// Molecular surface mesh — Gaussian or SES. The global surface
+    /// opacity uniform scales fragments of this kind; per-entity opacity
+    /// is still baked into vertex alpha. Default value.
     pub(crate) const SURFACE: u32 = 0;
     /// Internal cavity mesh — gets the cavity-specific pulsing rim and
     /// (eventually) volumetric / depth-absorption shading.
     pub(crate) const CAVITY: u32 = 1;
+    /// Electron-density map mesh — its opacity comes from the density
+    /// entry's own baked alpha and is excluded from the surface-opacity
+    /// uniform scale.
+    pub(crate) const DENSITY: u32 = 2;
 }
 
 /// A vertex on the extracted isosurface.

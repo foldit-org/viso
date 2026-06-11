@@ -28,6 +28,12 @@ use crate::renderer::pipeline::prepared::{
     SceneRequest, SurfaceJob, SurfaceJobKind, SurfaceRebuildBody,
 };
 
+/// Baked into a surface vertex's alpha to signal "no per-entity opacity
+/// override; scale by the global surface-opacity uniform at draw time."
+/// A real opacity is in `[0,1]`, so a negative value is an unambiguous
+/// sentinel.
+const SURFACE_OPACITY_FROM_UNIFORM: f32 = -1.0;
+
 /// Holder for the surface-regen submit channel.
 ///
 /// Carries a clone of the
@@ -97,7 +103,16 @@ pub(crate) fn regenerate_surfaces(
             |ovr| ovr.to_display_options(&options.display),
         );
         let kind = resolved.surface_kind();
-        let opacity = resolved.surface_opacity();
+        // Surface opacity is baked into vertex alpha as one of two things:
+        // a per-entity override bakes its ABSOLUTE value (rendered exactly,
+        // independent of the global slider); no override bakes the
+        // [`SURFACE_OPACITY_FROM_UNIFORM`] sentinel, signalling the shader
+        // to scale by the global surface-opacity uniform at draw time.
+        let opacity = annotations
+            .appearance
+            .get(&eid)
+            .and_then(|o| o.surface_opacity)
+            .unwrap_or(SURFACE_OPACITY_FROM_UNIFORM);
         let show_cavities = resolved.show_cavities();
 
         // An explicit per-entity surface takes priority; otherwise fall

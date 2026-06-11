@@ -186,12 +186,17 @@ impl RenderInvalidation {
     pub const RE_MESH: Self = Self(1 << 0);
     /// Recompute backbone colors (palette / scheme change).
     pub const RE_COLOR: Self = Self(1 << 1);
-    /// Regenerate molecular surfaces (kind / opacity / cavities).
+    /// Regenerate molecular surfaces (kind / cavities). Per-entity
+    /// opacity is also baked at regen time, so it rides this bit too.
     pub const RE_SURFACE: Self = Self(1 << 2);
     /// Per-chain LOD remesh (backbone style change).
     pub const LOD_REMESH: Self = Self(1 << 3);
     /// Re-resolve per-entity `drawing_mode` (global drawing_mode moved).
     pub const DRAWING_MODE_RESOLVE: Self = Self(1 << 4);
+    /// Global surface opacity changed. At global scope this is a cheap
+    /// uniform write (no regen); at per-entity scope it re-meshes (the
+    /// per-entity opacity factor is baked into vertex alpha).
+    pub const RE_SURFACE_OPACITY: Self = Self(1 << 5);
 
     /// True if no flags set.
     #[must_use]
@@ -368,12 +373,19 @@ impl DisplayOverrides {
             inv |= RenderInvalidation::RE_MESH;
         }
 
-        // Surface changes: regen surface mesh + sync.
+        // Surface kind / cavities: regen surface mesh + sync.
         if self.surface_kind != new.surface_kind
-            || self.surface_opacity != new.surface_opacity
             || self.show_cavities != new.show_cavities
         {
             inv |= RenderInvalidation::RE_SURFACE;
+        }
+
+        // Surface opacity is split out: the global dispatcher turns this
+        // into a cheap uniform write (no regen), while the per-entity
+        // dispatcher maps it back onto a re-mesh (per-entity opacity is
+        // baked into vertex alpha).
+        if self.surface_opacity != new.surface_opacity {
+            inv |= RenderInvalidation::RE_SURFACE_OPACITY;
         }
 
         // Cartoon style: backbone geometry changes -> LOD remesh.
