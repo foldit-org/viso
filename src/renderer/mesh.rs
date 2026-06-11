@@ -19,6 +19,14 @@ pub(crate) struct MeshPipelineDef {
     pub(crate) shader: Shader,
     pub(crate) cull_mode: Option<wgpu::Face>,
     pub(crate) vertex_layout: wgpu::VertexBufferLayout<'static>,
+    /// Exclude this mesh from the normal G-buffer. The mesh still writes
+    /// depth like opaque geometry (so it self-occludes its own folds and
+    /// is occluded by nearer opaque surfaces), but its normal target is
+    /// fully masked so the normal-edge outline and SSAO never key off it.
+    /// Used for alpha-composited surfaces that should depth-test and
+    /// self-occlude correctly yet cast no normal-edge silhouette. Meshes
+    /// that belong in the normal G-buffer set this `false`.
+    pub(crate) transparent: bool,
 }
 
 /// Create a standard indexed-mesh render pipeline.
@@ -39,6 +47,19 @@ pub(crate) fn create_mesh_pipeline(
         },
     );
 
+    // `transparent` meshes keep the opaque depth state (depth-write on,
+    // depth-compare Less) so they self-occlude their own folds and are
+    // occluded by nearer opaque geometry; only their normal target is
+    // fully masked so the normal-edge outline and SSAO ignore them.
+    // Opaque meshes use the shared defaults unchanged.
+    let mut fragment_targets = pipeline_util::hdr_fragment_targets();
+    let depth_stencil = pipeline_util::depth_stencil_state();
+    if def.transparent {
+        if let Some(normal_target) = &mut fragment_targets[1] {
+            normal_target.write_mask = wgpu::ColorWrites::empty();
+        }
+    }
+
     Ok(context
         .device
         .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -53,7 +74,7 @@ pub(crate) fn create_mesh_pipeline(
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
-                targets: &pipeline_util::hdr_fragment_targets(),
+                targets: &fragment_targets,
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
@@ -61,7 +82,7 @@ pub(crate) fn create_mesh_pipeline(
                 cull_mode: def.cull_mode,
                 ..Default::default()
             },
-            depth_stencil: Some(pipeline_util::depth_stencil_state()),
+            depth_stencil: Some(depth_stencil),
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,

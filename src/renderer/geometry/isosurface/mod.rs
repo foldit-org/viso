@@ -3,8 +3,11 @@
 //!
 //! Renders isosurfaces as triangle meshes via marching cubes on the
 //! CPU, uploaded through a `MeshPass` + `DynamicBuffer` vertex buffer.
-//! Integrates with depth, normals, SSAO, and bloom through the standard
-//! dual render target (color + normal).
+//! The surface alpha-composites its color over the opaque scene. It
+//! writes depth like opaque geometry, so it self-occludes its own folds
+//! and is occluded by nearer opaque surfaces, but it is masked out of
+//! the normal render target, so it stays out of the normal-edge outline
+//! and SSAO.
 
 pub(crate) mod cavity;
 pub(crate) mod cpu_marching_cubes;
@@ -142,6 +145,7 @@ impl IsosurfaceRenderer {
                 shader: Shader::Isosurface,
                 cull_mode: Some(wgpu::Face::Back),
                 vertex_layout: isosurface_vertex_layout(),
+                transparent: true,
             },
             &[
                 &layouts.camera,
