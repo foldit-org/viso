@@ -39,8 +39,31 @@ use crate::animation::{
 };
 use crate::camera;
 use crate::camera::controller::CameraController;
-use crate::options::VisoOptions;
+use crate::options::{SurfaceKindOption, VisoOptions};
 use crate::renderer::GpuPipeline;
+
+/// Quiet window the publish stream must stay silent for before the
+/// molecular surface is regenerated: long enough that a continuous edit
+/// (wiggle, drag) never crosses it mid-motion, short enough to re-mesh
+/// promptly once the conformation comes to rest.
+const SURFACE_SETTLE_WINDOW: std::time::Duration =
+    std::time::Duration::from_millis(180);
+
+/// Decide whether the surface should be regenerated now: it must be
+/// showable, the displayed geometry must differ from what it was last
+/// built against, and the publish stream must have stayed quiet for at
+/// least `window`. Pure so the logic is exercisable without a GPU.
+fn should_settle_surface(
+    surface_active: bool,
+    displayed_generation: u64,
+    built_generation: u64,
+    quiet_elapsed: std::time::Duration,
+    window: std::time::Duration,
+) -> bool {
+    surface_active
+        && displayed_generation != built_generation
+        && quiet_elapsed >= window
+}
 
 /// Stored constraint specifications (bands + pull), resolved to world-space
 /// each frame.
@@ -101,11 +124,22 @@ pub struct VisoEngine {
     pub(crate) annotations: EntityAnnotations,
 
     // ── Background isosurface-mesh regeneration ───────────────────
-    /// Owner of the worker→main channel sender used by
-    /// [`surface_regen::regenerate_surfaces`]. The matching receiver
-    /// lives on [`GpuPipeline`]; main-thread polling happens in
-    /// [`GpuPipeline::apply_pending_density_mesh`].
+    /// Holder for the surface-regen submit channel used by
+    /// [`surface_regen::regenerate_surfaces`]. Requests run on the shared
+    /// scene-processor worker; main-thread polling happens in
+    /// [`GpuPipeline::apply_pending_surface`].
     pub(crate) surface_regen: surface_regen::SurfaceRegen,
+    /// The `scene.last_seen_generation` the molecular surface was last
+    /// regenerated against; when it lags the displayed generation the
+    /// surface is stale. Inits to `u64::MAX` (matching
+    /// `last_seen_generation`) so a never-built surface reads stale only
+    /// once real geometry has been published.
+    surface_built_for_generation: u64,
+    /// Wall-clock instant of the most recent consumed publish, used to
+    /// detect when the publish stream has gone quiet. A
+    /// `web_time::Instant`, not a `dt` accumulator: the web frame loop
+    /// feeds a fixed `dt`, so only a wall clock measures real elapsed time.
+    last_publish_at: Instant,
 
     // ── Input state ───────────────────────────────────────────────
     /// Multi-click classifier + drag-detection state, fed by
@@ -155,7 +189,7 @@ impl VisoEngine {
             self.resolve_and_render_constraints();
         }
 
-        let _ = self.gpu.apply_pending_density_mesh();
+        let _ = self.gpu.apply_pending_surface();
     }
 
     /// Tick animation (both trajectory and structural), submitting any
@@ -279,6 +313,7 @@ impl VisoEngine {
         }
 
         self.apply_pending_scene();
+        self.maybe_settle_surface();
     }
 
     /// Whether a snapshot with an unseen generation is waiting.
@@ -345,6 +380,11 @@ impl VisoEngine {
         self.reset_scene_local_state();
         self.scene.pending = Some(assembly);
         self.sync_now();
+        // `sync_now` advanced `last_seen_generation` to the new snapshot;
+        // the reset already regenerated the surface against this scene, so
+        // re-align the marker to the synced generation to stop a redundant
+        // rebuild right after the swap.
+        self.surface_built_for_generation = self.scene.last_seen_generation;
     }
 
     /// Combined centroid of every visible entity in the synced scene,
@@ -400,7 +440,62 @@ impl VisoEngine {
         self.sync_from_assembly(&assembly);
         self.scene.current = assembly;
         self.scene.last_seen_generation = self.scene.current.generation();
+        // Restart the rest-detection clock: each consumed publish pushes
+        // the quiet window out, so a continuous stream never crosses it and
+        // the surface only re-meshes once motion stops.
+        self.last_publish_at = Instant::now();
         true
+    }
+
+    /// Whether any molecular surface could currently be shown. Errs toward
+    /// `true`: a false positive runs one harmless gather that yields no
+    /// jobs, while a false negative would leave a real surface frozen.
+    fn surface_active(&self) -> bool {
+        let display = &self.options.display;
+        if display.surface_kind() != SurfaceKindOption::None
+            || display.show_cavities()
+            || !self.annotations.surfaces.is_empty()
+        {
+            return true;
+        }
+        // A per-entity appearance override can turn a surface on even when
+        // the global display has none.
+        self.annotations.appearance.values().any(|ovr| {
+            matches!(
+                ovr.surface_kind,
+                Some(SurfaceKindOption::Gaussian | SurfaceKindOption::Ses)
+            ) || ovr.show_cavities == Some(true)
+        })
+    }
+
+    /// Regenerate the molecular surface once the conformation has come to
+    /// rest. Called once per `update` tick after the latest publish has
+    /// been consumed; the expensive marching-cubes re-mesh runs at most
+    /// once per rest, never per wiggle/drag frame (each publish restarts
+    /// the quiet window).
+    fn maybe_settle_surface(&mut self) {
+        // Decide before borrowing fields so the `&self` read and the later
+        // `&`-field reads plus marker write don't overlap.
+        let settle = should_settle_surface(
+            self.surface_active(),
+            self.scene.last_seen_generation,
+            self.surface_built_for_generation,
+            self.last_publish_at.elapsed(),
+            SURFACE_SETTLE_WINDOW,
+        );
+        if settle {
+            // At rest the scene's reference coords (`se.positions()`, read
+            // by `regenerate_surfaces`) equal the displayed coords, so the
+            // re-meshed surface matches what is on screen.
+            surface_regen::regenerate_surfaces(
+                &self.scene,
+                &self.annotations,
+                &self.density,
+                &self.options,
+                &self.surface_regen,
+            );
+            self.surface_built_for_generation = self.scene.last_seen_generation;
+        }
     }
 
     /// Stop the background scene processor thread.
@@ -482,6 +577,10 @@ impl VisoEngine {
             &self.options,
             &self.surface_regen,
         );
+        // Surface just regenerated against the freshly-reset scene; align
+        // the marker with the reset generation so the gate stays quiet
+        // until the next real publish advances the displayed generation.
+        self.surface_built_for_generation = self.scene.last_seen_generation;
     }
 
     /// Look up the opaque [`EntityId`] for a raw `u32` id. Returns
@@ -666,5 +765,36 @@ impl VisoEngine {
     pub fn world_to_screen(&self, world: glam::Vec3) -> Option<glam::Vec2> {
         self.camera_controller
             .world_to_screen(world, self.viewport_size())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::should_settle_surface;
+
+    const WINDOW: Duration = Duration::from_millis(180);
+    const QUIET: Duration = Duration::from_millis(200);
+    const MOVING: Duration = Duration::from_millis(50);
+
+    #[test]
+    fn settles_when_active_stale_and_quiet() {
+        assert!(should_settle_surface(true, 5, 4, QUIET, WINDOW));
+    }
+
+    #[test]
+    fn waits_while_still_moving() {
+        assert!(!should_settle_surface(true, 5, 4, MOVING, WINDOW));
+    }
+
+    #[test]
+    fn skips_when_surface_already_current() {
+        assert!(!should_settle_surface(true, 5, 5, QUIET, WINDOW));
+    }
+
+    #[test]
+    fn skips_when_no_surface_shown() {
+        assert!(!should_settle_surface(false, 5, 4, QUIET, WINDOW));
     }
 }

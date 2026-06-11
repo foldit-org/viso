@@ -1,6 +1,6 @@
 //! Per-entity molecular surface parameters and annotation mutators.
 //!
-//! Surfaces are generated on a background thread through
+//! Surfaces are generated on the shared scene-processor worker through
 //! [`crate::engine::surface_regen::regenerate_surfaces`] and rendered
 //! via the shared `IsosurfaceRenderer`. Multiple entities can each
 //! have surfaces — their meshes are concatenated before upload.

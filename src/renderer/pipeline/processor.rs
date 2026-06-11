@@ -8,14 +8,15 @@
 //! being regenerated. Global settings changes (view mode, display,
 //! colors) clear the entire cache.
 
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, Arc};
 
 use molex::entity::molecule::id::EntityId;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::prepared::{
     AnimationFrameBody, CachedEntityMesh, FullRebuildBody, FullRebuildEntity,
-    PreparedRebuild, SceneRequest,
+    PreparedRebuild, PreparedSurface, SceneRequest, SurfaceRebuildBody,
 };
 use crate::engine::positions::EntityPositions;
 use crate::options::{
@@ -75,6 +76,14 @@ pub(crate) struct SceneProcessor {
     request_tx: mpsc::Sender<SceneRequest>,
     rebuild_result: triple_buffer::Output<Option<PreparedRebuild>>,
     anim_result: triple_buffer::Output<Option<PreparedRebuild>>,
+    surface_result: triple_buffer::Output<Option<PreparedSurface>>,
+    /// Latest surface generation submitted. The surface-regen holder mints
+    /// each generation with `fetch_add` from a clone of this same `Arc`;
+    /// `try_recv_surface` reads it to discard a result that a newer submit
+    /// has already superseded. Shared because the submitting `&self`
+    /// borrow views (annotation / density write views) hold a clone but
+    /// cannot reach `SceneProcessor` to bump a plain field.
+    surface_generation: Arc<AtomicU64>,
     worker: WorkerHandle,
     /// Monotonically increasing rebuild generation counter. Bumped
     /// each time a `FullRebuild` is submitted. Animation frame results
@@ -105,21 +114,44 @@ impl SceneProcessor {
         let (rebuild_input, rebuild_output) =
             triple_buffer::triple_buffer(&None);
         let (anim_input, anim_output) = triple_buffer::triple_buffer(&None);
+        let (surface_input, surface_output) =
+            triple_buffer::triple_buffer(&None);
 
         let worker = spawn_background(move || {
-            Self::thread_loop(request_rx, rebuild_input, anim_input);
+            Self::thread_loop(
+                request_rx,
+                rebuild_input,
+                anim_input,
+                surface_input,
+            );
         })?;
 
         Ok(Self {
             request_tx,
             rebuild_result: rebuild_output,
             anim_result: anim_output,
+            surface_result: surface_output,
+            surface_generation: Arc::new(AtomicU64::new(0)),
             worker,
             rebuild_generation: 0,
             topology_generation: 0,
             last_entity_ids: FxHashSet::default(),
             rebuild_pending: false,
         })
+    }
+
+    /// A clone of the request sender, handed to the surface-regen holder
+    /// so the `&self`-borrow write views can submit `SurfaceRebuild`
+    /// requests without a `&mut SceneProcessor`.
+    pub(crate) fn request_sender(&self) -> mpsc::Sender<SceneRequest> {
+        self.request_tx.clone()
+    }
+
+    /// A clone of the shared latest-surface-generation counter. The
+    /// holder mints each surface generation from this; `try_recv_surface`
+    /// reads it back to discard superseded results.
+    pub(crate) fn surface_generation_handle(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.surface_generation)
     }
 
     /// Increment and return the next rebuild generation counter.
@@ -235,6 +267,29 @@ impl SceneProcessor {
         Some(prepared)
     }
 
+    /// Non-blocking check for a completed isosurface mesh.
+    ///
+    /// Discards a result whose surface generation is behind the latest
+    /// submitted (a newer regen has already superseded it). The single
+    /// serialized worker plus `drain_latest` already keep only the newest
+    /// queued `SurfaceRebuild`; this generation gate is the matching guard
+    /// against a lingering stale result in the triple buffer.
+    pub(crate) fn try_recv_surface(&mut self) -> Option<PreparedSurface> {
+        let _ = self.surface_result.update();
+        let prepared = self.surface_result.output_buffer_mut().take()?;
+        let latest = self.surface_generation.load(Ordering::Relaxed);
+        if surface_is_stale(prepared.surface_generation, latest) {
+            log::debug!(
+                "try_recv_surface: DISCARDING stale surface (gen {} < latest \
+                 {})",
+                prepared.surface_generation,
+                latest,
+            );
+            return None;
+        }
+        Some(prepared)
+    }
+
     /// Shut down the background thread and wait for it to finish.
     pub(crate) fn shutdown(&mut self) {
         let _ = self.request_tx.send(SceneRequest::Shutdown);
@@ -247,6 +302,7 @@ impl SceneProcessor {
         request_rx: mpsc::Receiver<SceneRequest>,
         mut rebuild_input: triple_buffer::Input<Option<PreparedRebuild>>,
         mut anim_input: triple_buffer::Input<Option<PreparedRebuild>>,
+        mut surface_input: triple_buffer::Input<Option<PreparedSurface>>,
     ) {
         let mut cache = MeshCache::new();
         // Topology generation of the last FullRebuild processed on this
@@ -255,11 +311,17 @@ impl SceneProcessor {
         let mut last_topology_generation: u64 = 0;
 
         while let Ok(request) = request_rx.recv() {
-            let latest = drain_latest(request, &request_rx);
+            let drained = drain_latest(request, &request_rx);
+            if drained.shutdown {
+                break;
+            }
 
-            match latest {
-                SceneRequest::Shutdown => break,
-                SceneRequest::FullRebuild(body) => {
+            // The mesh stream and the surface stream coalesce
+            // independently, so a wakeup can carry one of each. Process
+            // the mesh request first so the cache is current before any
+            // animation frame references it.
+            match drained.mesh {
+                Some(SceneRequest::FullRebuild(body)) => {
                     let FullRebuildBody {
                         entities,
                         display,
@@ -284,7 +346,7 @@ impl SceneProcessor {
                     prepared.topology_generation = topology_generation;
                     rebuild_input.write(Some(prepared));
                 }
-                SceneRequest::AnimationFrame(body) => {
+                Some(SceneRequest::AnimationFrame(body)) => {
                     let AnimationFrameBody {
                         positions,
                         geometry,
@@ -293,19 +355,29 @@ impl SceneProcessor {
                         generation,
                         topology_generation,
                     } = *body;
-                    if topology_generation < last_topology_generation {
-                        continue;
+                    if topology_generation >= last_topology_generation {
+                        let mut prepared = cache.regenerate_for_animation(
+                            &positions,
+                            &geometry,
+                            per_chain_lod.as_deref(),
+                            include_sidechains,
+                        );
+                        prepared.generation = generation;
+                        prepared.topology_generation = topology_generation;
+                        anim_input.write(Some(prepared));
                     }
-                    let mut prepared = cache.regenerate_for_animation(
-                        &positions,
-                        &geometry,
-                        per_chain_lod.as_deref(),
-                        include_sidechains,
-                    );
-                    prepared.generation = generation;
-                    prepared.topology_generation = topology_generation;
-                    anim_input.write(Some(prepared));
                 }
+                // `drain_latest` only ever parks a mesh-stream request
+                // here; `Shutdown` is handled above and `SurfaceRebuild`
+                // is routed to `drained.surface`.
+                Some(
+                    SceneRequest::SurfaceRebuild(_) | SceneRequest::Shutdown,
+                )
+                | None => {}
+            }
+
+            if let Some(body) = drained.surface {
+                surface_input.write(Some(body.generate()));
             }
         }
     }
@@ -546,26 +618,60 @@ impl MeshCache {
     }
 }
 
-/// Drain queued requests, keeping only the latest.
+/// Whether a surface result is stale: its generation is behind the
+/// latest submitted, so a newer regen has already superseded it.
+fn surface_is_stale(result_generation: u64, latest_generation: u64) -> bool {
+    result_generation < latest_generation
+}
+
+/// The coalesced result of draining the request queue: at most one
+/// mesh-stream request and at most one surface-stream request, plus a
+/// shutdown flag.
+struct DrainedRequests {
+    /// Latest mesh-stream request (`FullRebuild` / `AnimationFrame`), with
+    /// the rule that an `AnimationFrame` never buries a pending
+    /// `FullRebuild`.
+    mesh: Option<SceneRequest>,
+    /// Latest surface-stream request body.
+    surface: Option<Box<SurfaceRebuildBody>>,
+    /// Whether a `Shutdown` was seen anywhere in the drained batch.
+    shutdown: bool,
+}
+
+/// Drain queued requests, keeping only the latest from each stream.
 ///
-/// Special case: a queued `AnimationFrame` does NOT replace a pending
-/// `FullRebuild` — the rebuild must still run so the mesh cache is
-/// populated before animation frames can reference it.
+/// The mesh stream (`FullRebuild` / `AnimationFrame`) and the surface
+/// stream (`SurfaceRebuild`) are independent: a newer request on one
+/// never displaces a pending request on the other, so both are returned.
+/// Within the mesh stream a queued `AnimationFrame` does NOT replace a
+/// pending `FullRebuild` — the rebuild must still run so the mesh cache
+/// is populated before animation frames can reference it.
 fn drain_latest(
     initial: SceneRequest,
     rx: &mpsc::Receiver<SceneRequest>,
-) -> SceneRequest {
-    let mut latest = initial;
-    while let Ok(newer) = rx.try_recv() {
-        match (&latest, &newer) {
-            (SceneRequest::FullRebuild(_), SceneRequest::AnimationFrame(_)) => {
-            }
-            _ => {
-                latest = newer;
+) -> DrainedRequests {
+    let mut drained = DrainedRequests {
+        mesh: None,
+        surface: None,
+        shutdown: false,
+    };
+    let mut consider = |request| match request {
+        SceneRequest::Shutdown => drained.shutdown = true,
+        SceneRequest::SurfaceRebuild(body) => drained.surface = Some(body),
+        SceneRequest::AnimationFrame(body) => {
+            // An AnimationFrame must not bury a pending FullRebuild.
+            if !matches!(drained.mesh, Some(SceneRequest::FullRebuild(_))) {
+                drained.mesh = Some(SceneRequest::AnimationFrame(body));
             }
         }
+        mesh @ SceneRequest::FullRebuild(_) => drained.mesh = Some(mesh),
+    };
+
+    consider(initial);
+    while let Ok(newer) = rx.try_recv() {
+        consider(newer);
     }
-    latest
+    drained
 }
 
 #[cfg(test)]
@@ -606,5 +712,80 @@ mod tests {
             true,
         );
         assert!(!prepared.sidechains_omitted);
+    }
+
+    /// An empty surface-regen body, stamped with `generation`.
+    fn surface_request(generation: u64) -> SceneRequest {
+        SceneRequest::SurfaceRebuild(Box::new(SurfaceRebuildBody {
+            density_jobs: Vec::new(),
+            surface_jobs: Vec::new(),
+            cavity_jobs: Vec::new(),
+            surface_generation: generation,
+        }))
+    }
+
+    /// A result at the current generation is accepted.
+    #[test]
+    fn surface_result_at_current_generation_is_accepted() {
+        assert!(!surface_is_stale(5, 5));
+    }
+
+    /// A result built ahead of the recorded latest (a generation the
+    /// reader has not yet observed) is accepted.
+    #[test]
+    fn surface_result_ahead_of_latest_is_accepted() {
+        assert!(!surface_is_stale(6, 5));
+    }
+
+    /// A result whose generation trails the latest submitted is discarded.
+    #[test]
+    fn surface_result_behind_latest_is_discarded() {
+        assert!(surface_is_stale(4, 5));
+    }
+
+    /// The surface generation carried by a drained surface body. `None`
+    /// means no surface body survived, which the asserting tests reject.
+    fn surface_generation_of(drained: &DrainedRequests) -> Option<u64> {
+        drained.surface.as_ref().map(|body| body.surface_generation)
+    }
+
+    /// A `FullRebuildBody` with empty contents, stamped with `generation`.
+    fn full_rebuild_request(generation: u64) -> SceneRequest {
+        SceneRequest::FullRebuild(Box::new(FullRebuildBody {
+            entities: Vec::new(),
+            display: DisplayOptions::default(),
+            colors: ColorOptions::default(),
+            geometry: GeometryOptions::default(),
+            entity_options: FxHashMap::default(),
+            generation,
+            topology_generation: generation,
+        }))
+    }
+
+    /// Consecutive `SurfaceRebuild`s coalesce to the latest; the older
+    /// body is dropped.
+    #[test]
+    fn drain_coalesces_consecutive_surface_rebuilds() {
+        let (tx, rx) = mpsc::channel();
+        let _ = tx.send(surface_request(3));
+        let _ = tx.send(surface_request(4));
+        let drained = drain_latest(surface_request(2), &rx);
+        assert!(drained.mesh.is_none());
+        assert!(!drained.shutdown);
+        assert_eq!(surface_generation_of(&drained), Some(4));
+    }
+
+    /// A `SurfaceRebuild` queued behind a `FullRebuild` does NOT drop the
+    /// pending rebuild: both stream results survive the drain.
+    #[test]
+    fn drain_surface_does_not_drop_pending_full_rebuild() {
+        let (tx, rx) = mpsc::channel();
+        let _ = tx.send(surface_request(7));
+        let drained = drain_latest(full_rebuild_request(1), &rx);
+        assert!(
+            matches!(drained.mesh, Some(SceneRequest::FullRebuild(_))),
+            "pending full rebuild must survive a queued surface rebuild"
+        );
+        assert_eq!(surface_generation_of(&drained), Some(7));
     }
 }

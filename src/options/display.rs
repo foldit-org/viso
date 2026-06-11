@@ -505,9 +505,113 @@ impl DisplayOptions {
             stops: Vec::new(),
         }
     }
+
+    /// Return a copy of `self` whose `overrides` bag has every field set to
+    /// `Some(<effective value>)`, sourced from this type's resolving
+    /// accessors.
+    ///
+    /// `DisplayOverrides` is sparse: `None` fields are dropped on
+    /// serialization, so a settings panel bound to the raw value never sees
+    /// them and falls back to a control minimum or first variant instead of
+    /// the real effective setting. Densifying through the same accessors the
+    /// renderer reads means the panel reflects exactly what is drawn.
+    ///
+    /// Clones because the result is an owned value handed to serialization.
+    #[must_use]
+    pub fn with_resolved_overrides(&self) -> DisplayOptions {
+        let mut resolved = self.clone();
+        // Bond fields have no dedicated accessor; resolve them the same way
+        // an accessor would (mirror the `unwrap_or` defaults): visibility
+        // defaults to off, style to its `Default` variant.
+        let overrides = &mut resolved.overrides;
+        overrides.drawing_mode = Some(self.drawing_mode());
+        overrides.color_scheme = Some(self.backbone_color_scheme());
+        overrides.show_sidechains = Some(self.show_sidechains());
+        overrides.surface_kind = Some(self.surface_kind());
+        overrides.surface_opacity = Some(self.surface_opacity());
+        overrides.show_cavities = Some(self.show_cavities());
+        overrides.helix_style = Some(self.helix_style());
+        overrides.sheet_style = Some(self.sheet_style());
+        overrides.sidechain_color_mode = Some(self.sidechain_color_mode());
+        overrides.na_color_mode = Some(self.na_color_mode());
+        overrides.lipid_mode = Some(self.lipid_mode());
+        overrides.show_hydrogens = Some(self.show_hydrogens());
+        overrides.palette_preset = Some(self.backbone_palette_preset());
+        overrides.palette_mode = Some(self.backbone_palette_mode());
+        overrides.show_hbonds = Some(overrides.show_hbonds.unwrap_or(false));
+        overrides.hbond_style = Some(overrides.hbond_style.unwrap_or_default());
+        overrides.show_disulfides =
+            Some(overrides.show_disulfides.unwrap_or(false));
+        overrides.disulfide_style =
+            Some(overrides.disulfide_style.unwrap_or_default());
+        resolved
+    }
 }
 
 /// Default surface opacity for serde deserialization.
 fn default_surface_opacity() -> f32 {
     0.35
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    /// Every `DisplayOverrides` serde field name. `DisplayOverrides`
+    /// flattens into `DisplayOptions`, so each appears as a top-level key.
+    /// A field added to `DisplayOverrides` but forgotten by
+    /// `with_resolved_overrides` would serialize as absent, failing this
+    /// list's presence check below.
+    const OVERRIDE_FIELDS: &[&str] = &[
+        "drawing_mode",
+        "color_scheme",
+        "show_sidechains",
+        "surface_kind",
+        "surface_opacity",
+        "show_cavities",
+        "helix_style",
+        "sheet_style",
+        "sidechain_color_mode",
+        "na_color_mode",
+        "lipid_mode",
+        "show_hydrogens",
+        "palette_preset",
+        "palette_mode",
+        "show_hbonds",
+        "hbond_style",
+        "show_disulfides",
+        "disulfide_style",
+    ];
+
+    #[test]
+    fn resolved_overrides_serializes_every_field() {
+        let resolved = DisplayOptions::default().with_resolved_overrides();
+        let value = serde_json::to_value(&resolved).unwrap();
+        let obj = value.as_object().unwrap();
+        for field in OVERRIDE_FIELDS {
+            assert!(
+                obj.contains_key(*field),
+                "with_resolved_overrides dropped `{field}`: every \
+                 DisplayOverrides field must serialize as present"
+            );
+        }
+    }
+
+    #[test]
+    fn resolved_overrides_match_accessors() {
+        // The densified values must equal what the accessors (and thus the
+        // renderer) resolve to, not some independent default.
+        let opts = DisplayOptions::default();
+        let resolved = opts.with_resolved_overrides();
+        assert_eq!(
+            resolved.overrides.surface_opacity,
+            Some(opts.surface_opacity())
+        );
+        assert_eq!(resolved.overrides.drawing_mode, Some(opts.drawing_mode()));
+        assert_eq!(
+            resolved.overrides.color_scheme,
+            Some(opts.backbone_color_scheme())
+        );
+    }
 }

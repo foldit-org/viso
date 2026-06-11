@@ -100,7 +100,11 @@ fn fs_main(in: VertexOutput) -> FragOutput {
         absorption = 0.10;
     }
     let opacity = 1.0 - exp(-thickness * absorption);
-    final_alpha = in.vertex_color.a * opacity;
+    // The slider (baked into vertex_color.a) scales the volumetric
+    // Beer-Lambert absorption at low/mid values but reaches fully opaque
+    // at 1.0: the absorption factor is mixed toward 1.0 as the slider
+    // rises, so a maxed slider renders the surface solid.
+    final_alpha = in.vertex_color.a * mix(opacity, 1.0, in.vertex_color.a);
 
     // Cavity-specific rim, layered over the PBR pass. At the silhouette
     // thickness ≈ 0 so the Beer-Lambert opacity also ≈ 0, which would

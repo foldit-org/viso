@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use glam::Vec3;
 use molex::entity::molecule::id::EntityId;
+use molex::entity::surface::Density;
 use molex::SSType;
 use rustc_hash::FxHashMap;
 
@@ -11,6 +12,7 @@ use crate::options::{
 };
 use crate::renderer::entity_topology::EntityTopology;
 use crate::renderer::geometry::backbone::{ChainRange, SheetOffset};
+use crate::renderer::geometry::isosurface::IsosurfaceVertex;
 use crate::renderer::picking::PickMap;
 
 // ---------------------------------------------------------------------------
@@ -152,6 +154,145 @@ pub(crate) struct AnimationFrameBody {
     pub(crate) topology_generation: u64,
 }
 
+/// Which kind of molecular surface a [`SurfaceJob`] asks the worker to
+/// extract. The scalar counterpart of the engine-side `SurfaceKind`,
+/// flattened here so the worker never needs the engine's `EntitySurface`.
+#[derive(Clone, Copy)]
+pub(crate) enum SurfaceJobKind {
+    /// Smooth Gaussian blob surface.
+    Gaussian,
+    /// Solvent-excluded / Connolly surface.
+    Ses,
+}
+
+/// One entity-surface generation job, flattened to the scalar parameters
+/// the isosurface generators consume so the worker stays free of the
+/// engine-side `EntitySurface` type.
+pub(crate) struct SurfaceJob {
+    /// Atom world-space positions (Angstroms).
+    pub(crate) positions: Vec<Vec3>,
+    /// Per-atom van der Waals radii (Angstroms), parallel to `positions`.
+    pub(crate) radii: Vec<f32>,
+    /// Which surface to extract.
+    pub(crate) kind: SurfaceJobKind,
+    /// Grid resolution in Angstroms (lower = finer).
+    pub(crate) resolution: f32,
+    /// Probe radius for SES (Angstroms).
+    pub(crate) probe_radius: f32,
+    /// Gaussian isosurface level (only used for the Gaussian kind).
+    pub(crate) level: f32,
+    /// Surface RGBA color.
+    pub(crate) color: [f32; 4],
+}
+
+/// Body of a surface-regeneration request, boxed on the enum variant to
+/// keep [`SceneRequest`] compact.
+///
+/// Carries the already-gathered job lists (gathered on the main thread,
+/// which alone can read the scene / annotations / density store); the
+/// worker runs the generators and concatenates the meshes.
+pub(crate) struct SurfaceRebuildBody {
+    /// Density-map meshes: `(map, threshold, rgba)`, mirroring the shape
+    /// the density generator consumes.
+    pub(crate) density_jobs: Vec<(Density, f32, [f32; 4])>,
+    /// Per-entity surface jobs.
+    pub(crate) surface_jobs: Vec<SurfaceJob>,
+    /// Cavity jobs: `(positions, radii)`. Color is the fixed cavity tint.
+    pub(crate) cavity_jobs: Vec<(Vec<Vec3>, Vec<f32>)>,
+    /// Surface generation this request was minted at. The consumer
+    /// discards a result whose generation is behind the latest submitted.
+    pub(crate) surface_generation: u64,
+}
+
+impl SurfaceRebuildBody {
+    /// Run all isosurface generators and concatenate the meshes into one
+    /// GPU-ready buffer.
+    ///
+    /// Density maps, entity surfaces, then cavities, in that order; each
+    /// mesh's indices are rebased onto the running vertex count before
+    /// being appended. Runs on the scene-processor worker.
+    pub(crate) fn generate(self) -> PreparedSurface {
+        use crate::renderer::geometry::isosurface::{
+            cavity, density, gaussian_surface, ses,
+        };
+
+        let Self {
+            density_jobs,
+            surface_jobs,
+            cavity_jobs,
+            surface_generation,
+        } = self;
+
+        let mut all_verts: Vec<IsosurfaceVertex> = Vec::new();
+        let mut all_idxs: Vec<u32> = Vec::new();
+
+        // Generate density map meshes first
+        for (map, threshold, color) in &density_jobs {
+            let (v, i) =
+                density::generate_density_mesh(map, *threshold, *color, None);
+            let base = all_verts.len() as u32;
+            all_verts.extend(v);
+            all_idxs.extend(i.iter().map(|&idx| idx + base));
+        }
+
+        // Generate entity surface meshes
+        for job in &surface_jobs {
+            let (v, i) = match job.kind {
+                SurfaceJobKind::Gaussian => {
+                    gaussian_surface::generate_gaussian_surface(
+                        &job.positions,
+                        &job.radii,
+                        job.resolution,
+                        job.level,
+                        job.color,
+                    )
+                }
+                SurfaceJobKind::Ses => ses::generate_ses(
+                    &job.positions,
+                    &job.radii,
+                    Some(job.probe_radius),
+                    job.resolution,
+                    job.color,
+                ),
+            };
+            let base = all_verts.len() as u32;
+            all_verts.extend(v);
+            all_idxs.extend(i.iter().map(|&idx| idx + base));
+        }
+
+        // Generate cavity meshes on a 0.6 Å grid — coarser than SES
+        // because cavity detection is topological (flood fill from
+        // grid boundary), so finer voxels can flip whether a thin
+        // SES-wall separates a cavity from the exterior. 0.6 Å was
+        // verified to detect the expected number of cavities on
+        // benchmark structures (e.g. 1bbc has 3).
+        let mut cavity_count = 0usize;
+        for (positions, radii) in &cavity_jobs {
+            let set =
+                cavity::generate_cavities(positions, radii, Some(1.4), 0.6);
+            for mesh in &set.meshes {
+                let base = all_verts.len() as u32;
+                all_verts.extend(mesh.vertices.iter().copied());
+                all_idxs.extend(mesh.indices.iter().map(|&idx| idx + base));
+            }
+            cavity_count += set.meshes.len();
+        }
+
+        log::info!(
+            "surface mesh: {} verts, {} triangles ({} cavities)",
+            all_verts.len(),
+            all_idxs.len() / 3,
+            cavity_count,
+        );
+
+        PreparedSurface {
+            surface_generation,
+            vertices: all_verts,
+            indices: all_idxs,
+        }
+    }
+}
+
 /// Request sent from main thread to scene processor.
 pub(crate) enum SceneRequest {
     /// Full scene rebuild with per-entity derived state.
@@ -162,8 +303,23 @@ pub(crate) enum SceneRequest {
     /// regenerates backbone / sidechain meshes only, reusing topology
     /// + scene-state snapshots from the last `FullRebuild`.
     AnimationFrame(Box<AnimationFrameBody>),
+    /// Regenerate all isosurface meshes (density maps, entity surfaces,
+    /// cavities) from pre-gathered job lists.
+    SurfaceRebuild(Box<SurfaceRebuildBody>),
     /// Shut down the background thread.
     Shutdown,
+}
+
+/// Concatenated isosurface mesh, ready for GPU upload on the main thread.
+#[derive(Clone)]
+pub(crate) struct PreparedSurface {
+    /// Surface generation this mesh was produced for. The consumer
+    /// discards a result whose generation is behind the latest submitted.
+    pub(crate) surface_generation: u64,
+    /// Concatenated isosurface vertices.
+    pub(crate) vertices: Vec<IsosurfaceVertex>,
+    /// Triangle indices into `vertices`.
+    pub(crate) indices: Vec<u32>,
 }
 
 /// All pre-computed CPU data, ready for GPU-only upload on the main thread.

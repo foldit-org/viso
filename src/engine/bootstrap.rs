@@ -167,21 +167,26 @@ impl VisoEngine {
         options: VisoOptions,
     ) -> Result<Self, VisoError> {
         let bootstrap = init_gpu_pipeline(&context)?;
-        let (density_tx, density_rx) = std::sync::mpsc::channel();
+        let scene_processor =
+            SceneProcessor::new().map_err(VisoError::ThreadSpawn)?;
+        // The surface-regen holder submits onto the same worker and mints
+        // generations from the same counter the processor reads back.
+        let surface_regen = SurfaceRegen::new(
+            scene_processor.request_sender(),
+            scene_processor.surface_generation_handle(),
+        );
         Ok(Self {
             gpu: GpuPipeline {
                 context,
                 renderers: bootstrap.renderers,
                 pick: bootstrap.pick,
-                scene_processor: SceneProcessor::new()
-                    .map_err(VisoError::ThreadSpawn)?,
+                scene_processor,
                 post_process: bootstrap.post_process,
                 lighting: bootstrap.lighting,
                 cursor_pos: (0.0, 0.0),
                 last_cull_camera_eye: Vec3::ZERO,
                 retained_sidechains: Vec::new(),
                 shader_composer: bootstrap.shader_composer,
-                density_rx,
             },
             camera_controller: bootstrap.camera_controller,
             constraints: ConstraintSpecs {
@@ -195,7 +200,9 @@ impl VisoEngine {
             density: DensityStore::new(),
             scene: Scene::new(),
             annotations: EntityAnnotations::default(),
-            surface_regen: SurfaceRegen::new(density_tx),
+            surface_regen,
+            surface_built_for_generation: u64::MAX,
+            last_publish_at: Instant::now(),
             input_state: crate::input::click_state::InputState::new(),
             mouse_pressed: false,
             shift_pressed: false,

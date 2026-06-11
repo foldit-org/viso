@@ -1,7 +1,5 @@
 //! All GPU infrastructure grouped together.
 
-use std::sync::mpsc;
-
 use glam::{Mat4, Vec3};
 
 use crate::camera::controller::CameraController;
@@ -11,7 +9,6 @@ use crate::gpu::lighting::Lighting;
 use crate::gpu::{RenderContext, ShaderComposer};
 use crate::options::{GeometryOptions, LightingOptions, VisoOptions};
 use crate::renderer::draw_context::DrawBindGroups;
-use crate::renderer::geometry::isosurface::IsosurfaceVertex;
 use crate::renderer::geometry::PreparedBallAndStickData;
 use crate::renderer::impostor::CapsuleInstance;
 use crate::renderer::picking::PickingSystem;
@@ -63,10 +60,6 @@ pub(crate) struct GpuPipeline {
     /// Retained so compiled shader modules stay alive for the engine lifetime.
     #[allow(dead_code)]
     pub(crate) shader_composer: ShaderComposer,
-    /// Receiver for background-extracted isosurface meshes (density
-    /// maps, entity surfaces, cavities). The matching sender lives on
-    /// [`crate::engine::surface_regen::SurfaceRegen`].
-    pub(crate) density_rx: mpsc::Receiver<(Vec<IsosurfaceVertex>, Vec<u32>)>,
 }
 
 impl GpuPipeline {
@@ -412,28 +405,26 @@ impl GpuPipeline {
         self.lighting.update_gpu(&self.context.queue);
     }
 
-    /// Poll for pending density mesh data and upload to GPU.
+    /// Poll the scene processor for a completed isosurface mesh (density
+    /// maps, entity surfaces, cavities) and upload it to the GPU.
     ///
-    /// Drains all queued results and only applies the latest one,
-    /// so rapid slider changes don't queue up stale meshes.
-    pub(crate) fn apply_pending_density_mesh(&mut self) -> bool {
-        let mut latest = None;
-        while let Ok(data) = self.density_rx.try_recv() {
-            latest = Some(data);
-        }
-        let Some((vertices, indices)) = latest else {
+    /// The generation-gated `try_recv_surface` already discards a result
+    /// superseded by a newer regen, so rapid option changes never apply a
+    /// stale mesh.
+    pub(crate) fn apply_pending_surface(&mut self) -> bool {
+        let Some(prepared) = self.scene_processor.try_recv_surface() else {
             return false;
         };
         log::info!(
-            "applying density mesh: {} verts, {} indices",
-            vertices.len(),
-            indices.len()
+            "applying surface mesh: {} verts, {} indices",
+            prepared.vertices.len(),
+            prepared.indices.len()
         );
         self.renderers.isosurface.apply_prepared(
             &self.context.device,
             &self.context.queue,
-            &vertices,
-            &indices,
+            &prepared.vertices,
+            &prepared.indices,
         );
         true
     }

@@ -37,6 +37,14 @@ fn default_color_scheme() -> Option<ColorScheme> {
 fn default_surface_kind() -> Option<SurfaceKindOption> {
     Some(SurfaceKindOption::default())
 }
+// Mirrors the enum providers above for the one numeric override field: the
+// resolved default opacity (read through the public accessor on a default
+// `DisplayOptions`, so the magic number lives in one place) wrapped in
+// `Some` to satisfy the `skip_serializing_if` guard.
+#[allow(clippy::unnecessary_wraps)]
+fn default_surface_opacity_schema() -> Option<f32> {
+    Some(DisplayOptions::default().surface_opacity())
+}
 #[allow(clippy::unnecessary_wraps)]
 fn default_helix_style() -> Option<HelixStyle> {
     Some(HelixStyle::default())
@@ -94,6 +102,7 @@ pub struct DisplayOverrides {
     /// Surface opacity (alpha channel, 0.0–1.0).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0.0, max = 1.0))]
+    #[schemars(default = "default_surface_opacity_schema")]
     pub surface_opacity: Option<f32>,
     /// Whether to render internal cavity meshes.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -334,13 +343,17 @@ impl DisplayOverrides {
                 | RenderInvalidation::RE_MESH;
         }
 
-        // Color scheme / palette: mesh regenerates with new colors, and
-        // backbone color buffer rebuilds separately.
+        // Color scheme / palette: mesh regenerates with new colors, the
+        // backbone color buffer rebuilds separately, and any open molecular
+        // surface re-bakes its per-vertex palette color (baked at regen
+        // time, so it needs a surface regen to pick up the new palette).
         if self.color_scheme != new.color_scheme
             || self.palette_preset != new.palette_preset
             || self.palette_mode != new.palette_mode
         {
-            inv |= RenderInvalidation::RE_COLOR | RenderInvalidation::RE_MESH;
+            inv |= RenderInvalidation::RE_COLOR
+                | RenderInvalidation::RE_MESH
+                | RenderInvalidation::RE_SURFACE;
         }
 
         // Sidechain coloring: mesh rebuild picks up new sidechain colors.

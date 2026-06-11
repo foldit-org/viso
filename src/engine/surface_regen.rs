@@ -1,53 +1,72 @@
 //! Background regeneration of all isosurface meshes (density maps,
 //! entity surfaces, cavities).
 //!
-//! Isosurface meshing is kicked off from several annotation and density
-//! mutation paths; the completed mesh is shipped through an
-//! `mpsc::channel` to the main thread, which drains the receiver each
-//! frame and uploads the latest mesh to the GPU.
+//! Isosurface meshing is kicked off from several surface-option,
+//! annotation, and density mutation paths. The atom positions / radii /
+//! per-entity surface parameters are gathered here on the main thread
+//! (the only thread that can read the scene, annotations, and density
+//! store), then handed to the shared
+//! [`SceneProcessor`](crate::renderer::pipeline::SceneProcessor) worker
+//! as a [`SceneRequest::SurfaceRebuild`]. The worker runs the generators and
+//! concatenates the meshes; the main thread polls the result each frame
+//! and uploads it.
 //!
-//! This module owns the sender side of that channel through a thin
-//! [`SurfaceRegen`] holder. Decoupling it from `GpuPipeline` (which
-//! keeps the receiver) avoids exposing a worker-bound sender as a
-//! crate-internal API from the renderer back to engine code.
+//! This module owns a thin [`SurfaceRegen`] holder carrying a clone of
+//! the processor's request sender plus the shared surface-generation
+//! counter. The holder is `Send` + `Clone`, so the `&`-borrow write
+//! views can submit a regen without a `&mut GpuPipeline`.
 
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, Arc};
 
 use super::annotations::EntityAnnotations;
 use super::density_store::DensityStore;
 use super::scene::Scene;
 use super::surface::{EntitySurface, SurfaceKind};
 use crate::options::{SurfaceKindOption, VisoOptions};
-use crate::renderer::geometry::isosurface::IsosurfaceVertex;
+use crate::renderer::pipeline::prepared::{
+    SceneRequest, SurfaceJob, SurfaceJobKind, SurfaceRebuildBody,
+};
 
-/// Worker→main message type carrying a completed isosurface mesh.
-pub(crate) type MeshMessage = (Vec<IsosurfaceVertex>, Vec<u32>);
-
-/// Owner of the sender side of the background isosurface-mesh channel.
+/// Holder for the surface-regen submit channel.
 ///
-/// The matching receiver lives on
-/// [`crate::renderer::GpuPipeline`]; the two ends are constructed
-/// together in [`crate::engine::VisoEngine::new`].
+/// Carries a clone of the
+/// [`SceneProcessor`](crate::renderer::pipeline::SceneProcessor) request sender
+/// plus the shared latest-surface-generation counter. [`regenerate_surfaces`]
+/// mints a generation with `fetch_add` and
+/// submits a [`SceneRequest::SurfaceRebuild`]; the matching result is
+/// polled on the main thread via `SceneProcessor::try_recv_surface`. The
+/// holder is constructed in [`crate::engine::VisoEngine::new`].
 pub(crate) struct SurfaceRegen {
-    /// Sender used by [`regenerate_surfaces`] to ship completed meshes
-    /// back to the main thread.
-    pub(crate) tx: mpsc::Sender<MeshMessage>,
+    /// Sender used by [`regenerate_surfaces`] to submit regen requests.
+    tx: mpsc::Sender<SceneRequest>,
+    /// Shared latest-surface-generation counter. Minted here, read by the
+    /// processor's `try_recv_surface` to discard superseded results.
+    surface_generation: Arc<AtomicU64>,
 }
 
 impl SurfaceRegen {
-    /// Wrap an existing sender.
-    pub(crate) fn new(tx: mpsc::Sender<MeshMessage>) -> Self {
-        Self { tx }
+    /// Wrap the processor's request sender + shared generation counter.
+    pub(crate) fn new(
+        tx: mpsc::Sender<SceneRequest>,
+        surface_generation: Arc<AtomicU64>,
+    ) -> Self {
+        Self {
+            tx,
+            surface_generation,
+        }
     }
 }
 
 /// Regenerate all isosurface meshes (density + entity surfaces +
-/// cavities) on a background thread.
+/// cavities) on the shared scene-processor worker.
 ///
 /// Collects atom positions + radii from each entity that has a surface
-/// or cavity rendering enabled, runs the appropriate generator,
-/// concatenates all meshes, and sends the result to the isosurface
-/// mesh channel (shared with density map rendering).
+/// or cavity rendering enabled, flattens each entity's surface parameters
+/// into a worker-local [`SurfaceJob`], mints the next surface generation,
+/// and submits a [`SceneRequest::SurfaceRebuild`]. The worker runs the
+/// generators and concatenates the meshes (shared with density map
+/// rendering).
 pub(crate) fn regenerate_surfaces(
     scene: &Scene,
     annotations: &EntityAnnotations,
@@ -55,15 +74,8 @@ pub(crate) fn regenerate_surfaces(
     options: &VisoOptions,
     regen: &SurfaceRegen,
 ) {
-    use crate::renderer::geometry::isosurface::{
-        cavity, gaussian_surface, ses,
-    };
-
     let all_entities = scene.current.entities();
     let palette = options.display.backbone_palette();
-    let global_kind = options.display.surface_kind();
-    let global_opacity = options.display.surface_opacity();
-    let global_show_cavities = options.display.show_cavities();
 
     // Collect jobs: (positions, radii, surface params with color)
     let mut jobs: Vec<(Vec<glam::Vec3>, Vec<f32>, EntitySurface)> = Vec::new();
@@ -77,17 +89,30 @@ pub(crate) fn regenerate_surfaces(
             continue;
         }
 
-        // Per-entity surface takes priority; fall back to global
+        // Resolve this entity's surface settings through its appearance
+        // overlay (the same overlay the mesh path applies), falling back
+        // to the global display options when the entity has no override.
+        let resolved = annotations.appearance.get(&eid).map_or_else(
+            || options.display.clone(),
+            |ovr| ovr.to_display_options(&options.display),
+        );
+        let kind = resolved.surface_kind();
+        let opacity = resolved.surface_opacity();
+        let show_cavities = resolved.show_cavities();
+
+        // An explicit per-entity surface takes priority; otherwise fall
+        // back to the per-entity resolved appearance (the global value
+        // when the entity has no override).
         let base_surface = annotations.surfaces.get(&eid).map_or_else(
-            || match global_kind {
+            || match kind {
                 SurfaceKindOption::Gaussian => Some(EntitySurface {
                     kind: SurfaceKind::Gaussian,
-                    color: [0.7, 0.7, 0.7, global_opacity],
+                    color: [0.7, 0.7, 0.7, opacity],
                     ..Default::default()
                 }),
                 SurfaceKindOption::Ses => Some(EntitySurface {
                     kind: SurfaceKind::Ses,
-                    color: [0.7, 0.7, 0.7, global_opacity],
+                    color: [0.7, 0.7, 0.7, opacity],
                     ..Default::default()
                 }),
                 SurfaceKindOption::None => None,
@@ -96,9 +121,9 @@ pub(crate) fn regenerate_surfaces(
         );
 
         // Skip atoms gathering only when neither the surface nor cavity
-        // path wants this entity — cavities want it whenever the global
-        // toggle is on.
-        if base_surface.is_none() && !global_show_cavities {
+        // path wants this entity — cavities want it whenever this
+        // entity's resolved toggle is on.
+        if base_surface.is_none() && !show_cavities {
             continue;
         }
 
@@ -126,7 +151,7 @@ pub(crate) fn regenerate_surfaces(
             jobs.push((positions.clone(), radii.clone(), surface));
         }
 
-        if global_show_cavities {
+        if show_cavities {
             cavity_jobs.push((positions, radii));
         }
     }
@@ -140,87 +165,31 @@ pub(crate) fn regenerate_surfaces(
         })
         .collect();
 
-    if jobs.is_empty() && density_jobs.is_empty() && cavity_jobs.is_empty() {
-        // Nothing to generate — send empty mesh to clear renderer
-        let _ = regen.tx.send((Vec::new(), Vec::new()));
-        return;
-    }
+    // Flatten each gathered EntitySurface into a worker-local SurfaceJob
+    // so the worker never sees the engine-side surface type.
+    let surface_jobs: Vec<SurfaceJob> = jobs
+        .into_iter()
+        .map(|(positions, radii, surface)| SurfaceJob {
+            positions,
+            radii,
+            kind: match surface.kind {
+                SurfaceKind::Gaussian => SurfaceJobKind::Gaussian,
+                SurfaceKind::Ses => SurfaceJobKind::Ses,
+            },
+            resolution: surface.resolution,
+            probe_radius: surface.probe_radius,
+            level: surface.level,
+            color: surface.color,
+        })
+        .collect();
 
-    let tx = regen.tx.clone();
-
-    let spawn_result = std::thread::Builder::new()
-        .name("viso-surface-regen".into())
-        .spawn(move || {
-            let mut all_verts: Vec<IsosurfaceVertex> = Vec::new();
-            let mut all_idxs: Vec<u32> = Vec::new();
-
-            // Generate density map meshes first
-            use crate::renderer::geometry::isosurface::density;
-            for (map, threshold, color) in &density_jobs {
-                let (v, i) = density::generate_density_mesh(
-                    map, *threshold, *color, None,
-                );
-                let base = all_verts.len() as u32;
-                all_verts.extend(v);
-                all_idxs.extend(i.iter().map(|&idx| idx + base));
-            }
-
-            // Generate entity surface meshes
-            for (positions, radii, surface) in &jobs {
-                let (v, i) = match surface.kind {
-                    SurfaceKind::Gaussian => {
-                        gaussian_surface::generate_gaussian_surface(
-                            positions,
-                            radii,
-                            surface.resolution,
-                            surface.level,
-                            surface.color,
-                        )
-                    }
-                    SurfaceKind::Ses => ses::generate_ses(
-                        positions,
-                        radii,
-                        Some(surface.probe_radius),
-                        surface.resolution,
-                        surface.color,
-                    ),
-                };
-                let base = all_verts.len() as u32;
-                all_verts.extend(v);
-                all_idxs.extend(i.iter().map(|&idx| idx + base));
-            }
-
-            // Generate cavity meshes on a 0.6 Å grid — coarser than SES
-            // because cavity detection is topological (flood fill from
-            // grid boundary), so finer voxels can flip whether a thin
-            // SES-wall separates a cavity from the exterior. 0.6 Å was
-            // verified to detect the expected number of cavities on
-            // benchmark structures (e.g. 1bbc has 3).
-            let mut cavity_count = 0usize;
-            for (positions, radii) in &cavity_jobs {
-                let set =
-                    cavity::generate_cavities(positions, radii, Some(1.4), 0.6);
-                for mesh in &set.meshes {
-                    let base = all_verts.len() as u32;
-                    all_verts.extend(mesh.vertices.iter().copied());
-                    all_idxs.extend(mesh.indices.iter().map(|&idx| idx + base));
-                }
-                cavity_count += set.meshes.len();
-            }
-
-            log::info!(
-                "surface mesh: {} verts, {} triangles ({} cavities)",
-                all_verts.len(),
-                all_idxs.len() / 3,
-                cavity_count,
-            );
-
-            if tx.send((all_verts, all_idxs)).is_err() {
-                log::warn!("surface mesh channel send failed");
-            }
-        });
-
-    if let Err(e) = spawn_result {
-        log::warn!("failed to spawn surface regen thread: {e}");
-    }
+    let surface_generation =
+        regen.surface_generation.fetch_add(1, Ordering::Relaxed) + 1;
+    let body = SurfaceRebuildBody {
+        density_jobs,
+        surface_jobs,
+        cavity_jobs,
+        surface_generation,
+    };
+    let _ = regen.tx.send(SceneRequest::SurfaceRebuild(Box::new(body)));
 }
