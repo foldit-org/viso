@@ -352,16 +352,15 @@ impl PresentMode {
     }
 }
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, PartialEq, Default, JsonSchema,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(default)]
 #[schemars(title = "Display", inline)]
 #[allow(clippy::struct_excessive_bools)]
 /// Display toggles and coloring mode selections.
 ///
 /// Combines:
-/// - 5 global-only ambient toggles (waters/ions/solvent/present_mode/bonds)
+/// - 6 global-only ambient toggles
+///   (waters/ions/solvent/clashes/present_mode/bonds)
 /// - a flattened [`super::DisplayOverrides`] bag of 14 per-entity overridable
 ///   fields (drawing mode, color scheme, cartoon style, etc.) serialized flat
 ///   for TOML compatibility
@@ -377,6 +376,8 @@ pub struct DisplayOptions {
     pub show_ions: bool,
     /// Whether to render solvent molecules.
     pub show_solvent: bool,
+    /// Show clashes.
+    pub show_clashes: bool,
 
     // --- Rendering (not per-entity) ---
     /// Surface presentation mode (VSync, immediate, mailbox).
@@ -399,6 +400,25 @@ pub struct DisplayOptions {
     pub overrides: super::DisplayOverrides,
 }
 
+impl Default for DisplayOptions {
+    fn default() -> Self {
+        // All fields take their type-level default except `show_clashes`,
+        // which defaults on (clashes are a global diagnostic shown by
+        // default). `#[serde(default)]` routes missing TOML/JSON keys here,
+        // so this is the single source of truth for the default toggle state.
+        Self {
+            show_waters: false,
+            show_ions: false,
+            show_solvent: false,
+            show_clashes: true,
+            present_mode: PresentMode::default(),
+            bonds: BondOptions::default(),
+            backbone_color_mode: BackboneColorMode::default(),
+            overrides: super::DisplayOverrides::default(),
+        }
+    }
+}
+
 impl DisplayOptions {
     /// Top-level drawing mode (Cartoon / Stick / BallAndStick), resolved
     /// against built-in defaults.
@@ -417,6 +437,12 @@ impl DisplayOptions {
     #[must_use]
     pub fn show_sidechains(&self) -> bool {
         self.overrides.show_sidechains.unwrap_or(false)
+    }
+
+    /// Whether to show clashes, resolved.
+    #[must_use]
+    pub fn show_clashes(&self) -> bool {
+        self.show_clashes
     }
 
     /// Global molecular surface type, resolved.

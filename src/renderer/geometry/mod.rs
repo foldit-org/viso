@@ -13,6 +13,8 @@ pub(crate) mod ball_and_stick;
 pub(crate) mod band;
 /// Structural bond renderer (H-bonds, disulfide bonds).
 pub(crate) mod bond;
+/// Steric clash arc renderer.
+pub(crate) mod clash;
 /// Isosurface mesh renderer (electron density maps).
 pub(crate) mod isosurface;
 /// Nucleic acid ring + stem renderer.
@@ -30,6 +32,7 @@ pub(crate) use ball_and_stick::{
 };
 pub(crate) use band::BandRenderer;
 pub(crate) use bond::BondRenderer;
+pub(crate) use clash::ClashArcRenderer;
 pub(crate) use nucleic_acid::NucleicAcidRenderer;
 pub(crate) use pull::PullRenderer;
 pub(crate) use sidechain::{SidechainRenderer, SidechainView};

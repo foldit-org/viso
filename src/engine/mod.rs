@@ -69,13 +69,15 @@ pub(crate) struct ExternalVoidField {
     pub(crate) threshold: f32,
 }
 
-/// Stored constraint specifications (bands + pull), resolved to world-space
-/// each frame.
+/// Stored constraint specifications (bands + pull + clashes), resolved to
+/// world-space each frame.
 pub(crate) struct ConstraintSpecs {
     /// Band constraint specs.
     pub(crate) band_specs: Vec<command::BandInfo>,
     /// Pull constraint spec.
     pub(crate) pull_spec: Option<command::PullInfo>,
+    /// Steric clash arc specs.
+    pub(crate) clash_specs: Vec<command::ClashInfo>,
 }
 
 /// The core rendering engine for protein visualization.
@@ -193,6 +195,7 @@ impl VisoEngine {
 
         if !self.constraints.band_specs.is_empty()
             || self.constraints.pull_spec.is_some()
+            || !self.constraints.clash_specs.is_empty()
         {
             self.resolve_and_render_constraints();
         }

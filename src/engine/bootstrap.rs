@@ -192,6 +192,7 @@ impl VisoEngine {
             constraints: ConstraintSpecs {
                 band_specs: Vec::new(),
                 pull_spec: None,
+                clash_specs: Vec::new(),
             },
             animation: AnimationState::new(),
             options,

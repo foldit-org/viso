@@ -15,7 +15,8 @@ use molex::entity::molecule::id::EntityId;
 
 use super::annotations::EntityAnnotations;
 use super::command::{
-    AtomRef, BandInfo, BandTarget, PullInfo, ResolvedBand, ResolvedPull,
+    AtomRef, BandInfo, BandTarget, ClashEndpoint, ClashInfo, PullInfo,
+    ResolvedBand, ResolvedClash, ResolvedPull,
 };
 use super::entity_view::EntityView;
 use super::scene::Scene;
@@ -128,6 +129,59 @@ fn resolve_band(
         band_type: band.band_type,
         from_script: band.from_script,
     })
+}
+
+/// Resolve a single clash spec to world-space endpoint positions.
+///
+/// Each endpoint names its owning entity and an entity-local residue, so
+/// resolution is direct: look the entity up in the Scene and resolve the
+/// atom in place, with no flat-index indirection. The clash is skipped
+/// (returns `None`) if either endpoint's entity is absent or its atom
+/// fails to resolve, exactly as bands skip.
+fn resolve_clash(
+    ctx: &ConstraintContext<'_>,
+    clash: &ClashInfo,
+) -> Option<ResolvedClash> {
+    let endpoint_a = resolve_clash_endpoint(ctx.scene, &clash.a)?;
+    let endpoint_b = resolve_clash_endpoint(ctx.scene, &clash.b)?;
+    Some(ResolvedClash {
+        endpoint_a,
+        endpoint_b,
+        severity: clash.severity,
+        seed: clash_seed(&clash.a, &clash.b),
+    })
+}
+
+/// Hash a clash's atom pair into a stable per-clash seed in `[0, 1)`.
+///
+/// Deterministic per atom-pair so the procedural lightning bolt's jag and
+/// flicker are consistent across frames for a given clash but decorrelated
+/// between distinct clashes. A plain FNV-1a walk over the endpoint fields
+/// keeps it independent of world-space positions (which animate).
+fn clash_seed(a: &ClashEndpoint, b: &ClashEndpoint) -> f32 {
+    let mut h: u32 = 0x811c_9dc5;
+    let mut mix = |bytes: &[u8]| {
+        for &byte in bytes {
+            h ^= u32::from(byte);
+            h = h.wrapping_mul(0x0100_0193);
+        }
+    };
+    mix(&a.entity.raw().to_le_bytes());
+    mix(&a.residue.to_le_bytes());
+    mix(a.atom_name.as_bytes());
+    mix(&b.entity.raw().to_le_bytes());
+    mix(&b.residue.to_le_bytes());
+    mix(b.atom_name.as_bytes());
+    // Map the 32-bit hash into [0, 1).
+    (h as f32) / (u32::MAX as f32)
+}
+
+/// Resolve one per-entity clash endpoint to world-space. Returns `None`
+/// if the entity is not present in the Scene or the atom does not resolve.
+fn resolve_clash_endpoint(scene: &Scene, ep: &ClashEndpoint) -> Option<Vec3> {
+    let state = scene.entity_state.get(&ep.entity)?;
+    let positions = scene.positions.get(ep.entity)?;
+    resolve_atom_in_entity(state, positions, ep.residue, &ep.atom_name)
 }
 
 /// Resolve a pull spec to world-space atom and target positions.
@@ -320,9 +374,9 @@ impl ConstraintSpecs {
         gpu: &mut GpuPipeline,
     ) {
         let viewport = (gpu.context.config.width, gpu.context.config.height);
-        // Resolve both bands and pull against one shared context, then
-        // drop it before taking `&mut gpu` for the upload.
-        let (resolved_bands, resolved_pull) = {
+        // Resolve bands, pull, and clashes against one shared context,
+        // then drop it before taking `&mut gpu` for the upload.
+        let (resolved_bands, resolved_pull, resolved_clashes) = {
             let ctx = ConstraintContext::new(scene, annotations);
             let bands: Vec<_> = self
                 .band_specs
@@ -333,7 +387,12 @@ impl ConstraintSpecs {
                 .pull_spec
                 .as_ref()
                 .and_then(|p| resolve_pull(&ctx, camera, viewport, p));
-            (bands, pull)
+            let clashes: Vec<_> = self
+                .clash_specs
+                .iter()
+                .filter_map(|c| resolve_clash(&ctx, c))
+                .collect();
+            (bands, pull, clashes)
         };
 
         gpu.renderers.band.update(
@@ -346,6 +405,11 @@ impl ConstraintSpecs {
             &gpu.context.device,
             &gpu.context.queue,
             resolved_pull.as_ref(),
+        );
+        gpu.renderers.clash.update(
+            &gpu.context.device,
+            &gpu.context.queue,
+            &resolved_clashes,
         );
     }
 }
@@ -375,5 +439,46 @@ impl VisoEngine {
     pub fn update_pull(&mut self, pull: Option<PullInfo>) {
         self.constraints.pull_spec = pull;
         self.resolve_and_render_constraints();
+    }
+
+    /// Replace the current set of steric clash arcs. An empty vec clears
+    /// them.
+    pub fn update_clashes(&mut self, clashes: Vec<ClashInfo>) {
+        self.constraints.clash_specs = clashes;
+        self.resolve_and_render_constraints();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn endpoint(entity: u32, residue: u32, atom: &str) -> ClashEndpoint {
+        ClashEndpoint {
+            entity: EntityId::from_raw(entity),
+            residue,
+            atom_name: atom.to_owned(),
+        }
+    }
+
+    #[test]
+    fn clash_seed_is_deterministic_per_pair() {
+        let a = endpoint(0, 7, "CA");
+        let b = endpoint(1, 12, "CB");
+        assert_eq!(clash_seed(&a, &b), clash_seed(&a, &b));
+    }
+
+    #[test]
+    fn clash_seed_decorrelates_distinct_pairs() {
+        let a = endpoint(0, 7, "CA");
+        let b = endpoint(1, 12, "CB");
+        let c = endpoint(0, 8, "CA");
+        assert_ne!(clash_seed(&a, &b), clash_seed(&a, &c));
+    }
+
+    #[test]
+    fn clash_seed_in_unit_range() {
+        let s = clash_seed(&endpoint(3, 5, "N"), &endpoint(3, 9, "O"));
+        assert!((0.0..1.0).contains(&s), "seed {s} out of [0, 1)");
     }
 }

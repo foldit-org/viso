@@ -48,7 +48,9 @@ pub use app::viewer::{Viewer, ViewerBuilder};
 pub use app::VisoApp;
 #[cfg(feature = "gui")]
 pub use bridge::UiAction;
-pub use engine::command::{AtomRef, BandInfo, BandTarget, BandType, PullInfo};
+pub use engine::command::{
+    AtomRef, BandInfo, BandTarget, BandType, ClashEndpoint, ClashInfo, PullInfo,
+};
 pub use engine::constraint::PickedResidueAtom;
 pub use engine::focus::Focus;
 pub use engine::VisoEngine;

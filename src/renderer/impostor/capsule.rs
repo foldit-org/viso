@@ -7,8 +7,8 @@ pub(crate) struct CapsuleInstance {
     pub(crate) endpoint_a: [f32; 4],
     /// Endpoint B position (xyz), residue_idx (w) - packed as float
     pub(crate) endpoint_b: [f32; 4],
-    /// Color at endpoint A (RGB), w unused
+    /// Color at endpoint A (RGB), emissive glow factor (w)
     pub(crate) color_a: [f32; 4],
-    /// Color at endpoint B (RGB), w unused
+    /// Color at endpoint B (RGB), opacity / pulse gate (w)
     pub(crate) color_b: [f32; 4],
 }
