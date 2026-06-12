@@ -64,10 +64,21 @@ impl DynamicBuffer {
         let data_bytes = bytemuck::cast_slice(data);
         let capacity = data_bytes.len().max(64);
 
+        // Allocate the full (floored) capacity so the tracked `capacity`
+        // always equals the real buffer size. Without this, a buffer
+        // initialized with fewer than 64 bytes would report `capacity` 64
+        // while the backing buffer was only `data_bytes.len()` bytes, and a
+        // later grow-check (`needed > capacity`) would wrongly skip
+        // reallocation and overrun the buffer on write. The padding bytes are
+        // zeroed and unused (`len` tracks the real data length). This also
+        // turns the empty-data case into a valid 64-byte buffer.
+        let mut contents = data_bytes.to_vec();
+        contents.resize(capacity, 0);
+
         let buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(label),
-                contents: data_bytes,
+                contents: &contents,
                 usage: usage | wgpu::BufferUsages::COPY_DST,
             });
 
