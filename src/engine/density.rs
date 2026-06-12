@@ -8,7 +8,7 @@ use super::annotations::EntityAnnotations;
 use super::density_store::DensityStore;
 use super::scene::Scene;
 use super::surface_regen::{regenerate_surfaces, SurfaceRegen};
-use super::VisoEngine;
+use super::{ExternalVoidField, VisoEngine};
 use crate::camera::fit::combined_bounding_sphere;
 use crate::options::VisoOptions;
 
@@ -25,6 +25,7 @@ pub(crate) struct DensityScene<'a> {
     store: &'a mut DensityStore,
     scene: &'a Scene,
     annotations: &'a EntityAnnotations,
+    external_void_field: Option<&'a ExternalVoidField>,
     options: &'a VisoOptions,
     regen: &'a SurfaceRegen,
 }
@@ -37,6 +38,7 @@ impl DensityScene<'_> {
             self.scene,
             self.annotations,
             &*self.store,
+            self.external_void_field,
             self.options,
             self.regen,
         );
@@ -112,6 +114,48 @@ impl DensityScene<'_> {
 }
 
 impl VisoEngine {
+    /// Replace the host-supplied void distance field and re-mesh the
+    /// isosurface pass.
+    ///
+    /// `phi` is a flat row-major scalar grid (`phi[x*ny*nz + y*nz + z]`)
+    /// in marching-cubes polarity: HIGH at void centers, ~0 at atom walls
+    /// / exterior. It is meshed at the positive `threshold` directly into
+    /// a smooth blob carrying the same CAVITY kind / tint as a detected
+    /// cavity, so it gets the cavity breathing + Beer-Lambert for free. An
+    /// empty `phi` (or any zero dimension) clears the field. Meshing runs
+    /// on the background thread; the result appears on the next frame
+    /// after completion.
+    pub fn set_external_void_field(
+        &mut self,
+        dims: [usize; 3],
+        origin: [f32; 3],
+        spacing: [f32; 3],
+        phi: Vec<f32>,
+        threshold: f32,
+    ) {
+        let [nx, ny, nz] = dims;
+        self.external_void_field =
+            if phi.is_empty() || nx == 0 || ny == 0 || nz == 0 {
+                None
+            } else {
+                Some(ExternalVoidField {
+                    dims,
+                    origin,
+                    spacing,
+                    phi,
+                    threshold,
+                })
+            };
+        regenerate_surfaces(
+            &self.scene,
+            &self.annotations,
+            &self.density,
+            self.external_void_field.as_ref(),
+            &self.options,
+            &self.surface_regen,
+        );
+    }
+
     /// Disjoint-borrow write view over the density store plus the
     /// scene fields every density mutation has to read for regeneration.
     pub(crate) fn density_mut(&mut self) -> DensityScene<'_> {
@@ -119,6 +163,7 @@ impl VisoEngine {
             store: &mut self.density,
             scene: &self.scene,
             annotations: &self.annotations,
+            external_void_field: self.external_void_field.as_ref(),
             options: &self.options,
             regen: &self.surface_regen,
         }

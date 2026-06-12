@@ -49,20 +49,24 @@ use crate::renderer::GpuPipeline;
 const SURFACE_SETTLE_WINDOW: std::time::Duration =
     std::time::Duration::from_millis(180);
 
-/// Decide whether the surface should be regenerated now: it must be
-/// showable, the displayed geometry must differ from what it was last
-/// built against, and the publish stream must have stayed quiet for at
-/// least `window`. Pure so the logic is exercisable without a GPU.
-fn should_settle_surface(
-    surface_active: bool,
-    displayed_generation: u64,
-    built_generation: u64,
-    quiet_elapsed: std::time::Duration,
-    window: std::time::Duration,
-) -> bool {
-    surface_active
-        && displayed_generation != built_generation
-        && quiet_elapsed >= window
+/// A host-supplied void distance field stored on the engine, meshed as a
+/// smooth blob on every surface regen.
+///
+/// `phi` is a flat row-major scalar grid that is HIGH at void centers and
+/// ~0 at atom walls / exterior; the worker meshes its isosurface at
+/// `threshold` directly. Pushed via
+/// [`VisoEngine::set_external_void_field`].
+pub(crate) struct ExternalVoidField {
+    /// Grid dimensions `[nx, ny, nz]`.
+    pub(crate) dims: [usize; 3],
+    /// World-space origin of grid cell `(0,0,0)` (Angstroms).
+    pub(crate) origin: [f32; 3],
+    /// Per-axis grid spacing (Angstroms).
+    pub(crate) spacing: [f32; 3],
+    /// Flat row-major distance field.
+    pub(crate) phi: Vec<f32>,
+    /// Positive iso-level: the void-surface level to wrap.
+    pub(crate) threshold: f32,
 }
 
 /// Stored constraint specifications (bands + pull), resolved to world-space
@@ -107,6 +111,10 @@ pub struct VisoEngine {
     pub(crate) frame_timing: FrameTiming,
     /// Loaded electron density maps.
     pub(crate) density: DensityStore,
+    /// Host-supplied void distance field pushed via
+    /// [`VisoEngine::set_external_void_field`]; meshed as a smooth blob
+    /// into the cavity stream. `None` when no field is set.
+    pub(crate) external_void_field: Option<ExternalVoidField>,
 
     // ── Assembly ingest + derived per-entity state ────────────────
     /// Pending snapshot pushed by the host, latest applied snapshot,
@@ -476,7 +484,7 @@ impl VisoEngine {
     fn maybe_settle_surface(&mut self) {
         // Decide before borrowing fields so the `&self` read and the later
         // `&`-field reads plus marker write don't overlap.
-        let settle = should_settle_surface(
+        let settle = surface_regen::should_settle_surface(
             self.surface_active(),
             self.scene.last_seen_generation,
             self.surface_built_for_generation,
@@ -491,6 +499,7 @@ impl VisoEngine {
                 &self.scene,
                 &self.annotations,
                 &self.density,
+                self.external_void_field.as_ref(),
                 &self.options,
                 &self.surface_regen,
             );
@@ -574,6 +583,7 @@ impl VisoEngine {
             &self.scene,
             &self.annotations,
             &self.density,
+            self.external_void_field.as_ref(),
             &self.options,
             &self.surface_regen,
         );
@@ -765,36 +775,5 @@ impl VisoEngine {
     pub fn world_to_screen(&self, world: glam::Vec3) -> Option<glam::Vec2> {
         self.camera_controller
             .world_to_screen(world, self.viewport_size())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::should_settle_surface;
-
-    const WINDOW: Duration = Duration::from_millis(180);
-    const QUIET: Duration = Duration::from_millis(200);
-    const MOVING: Duration = Duration::from_millis(50);
-
-    #[test]
-    fn settles_when_active_stale_and_quiet() {
-        assert!(should_settle_surface(true, 5, 4, QUIET, WINDOW));
-    }
-
-    #[test]
-    fn waits_while_still_moving() {
-        assert!(!should_settle_surface(true, 5, 4, MOVING, WINDOW));
-    }
-
-    #[test]
-    fn skips_when_surface_already_current() {
-        assert!(!should_settle_surface(true, 5, 5, QUIET, WINDOW));
-    }
-
-    #[test]
-    fn skips_when_no_surface_shown() {
-        assert!(!should_settle_surface(false, 5, 4, QUIET, WINDOW));
     }
 }

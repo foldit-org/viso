@@ -23,10 +23,27 @@ use super::annotations::EntityAnnotations;
 use super::density_store::DensityStore;
 use super::scene::Scene;
 use super::surface::{EntitySurface, SurfaceKind};
+use super::ExternalVoidField;
 use crate::options::{SurfaceKindOption, VisoOptions};
 use crate::renderer::pipeline::prepared::{
-    SceneRequest, SurfaceJob, SurfaceJobKind, SurfaceRebuildBody,
+    SceneRequest, SurfaceJob, SurfaceJobKind, SurfaceRebuildBody, VoidFieldJob,
 };
+
+/// Decide whether the surface should be regenerated now: it must be
+/// showable, the displayed geometry must differ from what it was last
+/// built against, and the publish stream must have stayed quiet for at
+/// least `window`. Pure so the logic is exercisable without a GPU.
+pub(crate) fn should_settle_surface(
+    surface_active: bool,
+    displayed_generation: u64,
+    built_generation: u64,
+    quiet_elapsed: std::time::Duration,
+    window: std::time::Duration,
+) -> bool {
+    surface_active
+        && displayed_generation != built_generation
+        && quiet_elapsed >= window
+}
 
 /// Baked into a surface vertex's alpha to signal "no per-entity opacity
 /// override; scale by the global surface-opacity uniform at draw time."
@@ -77,6 +94,7 @@ pub(crate) fn regenerate_surfaces(
     scene: &Scene,
     annotations: &EntityAnnotations,
     density: &DensityStore,
+    external_void_field: Option<&ExternalVoidField>,
     options: &VisoOptions,
     regen: &SurfaceRegen,
 ) {
@@ -180,6 +198,22 @@ pub(crate) fn regenerate_surfaces(
         })
         .collect();
 
+    // Host-supplied void distance field, meshed as a smooth blob in the
+    // same cavity stream. An empty field clears to no job.
+    let void_field_job = external_void_field.and_then(|f| {
+        let [nx, ny, nz] = f.dims;
+        if f.phi.is_empty() || nx == 0 || ny == 0 || nz == 0 {
+            return None;
+        }
+        Some(VoidFieldJob {
+            dims: f.dims,
+            origin: f.origin,
+            spacing: f.spacing,
+            phi: f.phi.clone(),
+            threshold: f.threshold,
+        })
+    });
+
     // Flatten each gathered EntitySurface into a worker-local SurfaceJob
     // so the worker never sees the engine-side surface type.
     let surface_jobs: Vec<SurfaceJob> = jobs
@@ -204,7 +238,39 @@ pub(crate) fn regenerate_surfaces(
         density_jobs,
         surface_jobs,
         cavity_jobs,
+        void_field_job,
         surface_generation,
     };
     let _ = regen.tx.send(SceneRequest::SurfaceRebuild(Box::new(body)));
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::should_settle_surface;
+
+    const WINDOW: Duration = Duration::from_millis(180);
+    const QUIET: Duration = Duration::from_millis(200);
+    const MOVING: Duration = Duration::from_millis(50);
+
+    #[test]
+    fn settles_when_active_stale_and_quiet() {
+        assert!(should_settle_surface(true, 5, 4, QUIET, WINDOW));
+    }
+
+    #[test]
+    fn waits_while_still_moving() {
+        assert!(!should_settle_surface(true, 5, 4, MOVING, WINDOW));
+    }
+
+    #[test]
+    fn skips_when_surface_already_current() {
+        assert!(!should_settle_surface(true, 5, 5, QUIET, WINDOW));
+    }
+
+    #[test]
+    fn skips_when_no_surface_shown() {
+        assert!(!should_settle_surface(false, 5, 4, QUIET, WINDOW));
+    }
 }

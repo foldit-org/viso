@@ -239,6 +239,7 @@ impl VisoEngine {
                 &self.scene,
                 &self.annotations,
                 &self.density,
+                self.external_void_field.as_ref(),
                 &self.options,
                 &self.surface_regen,
             );
@@ -304,6 +305,7 @@ impl VisoEngine {
                 &self.scene,
                 &self.annotations,
                 &self.density,
+                self.external_void_field.as_ref(),
                 &self.options,
                 &self.surface_regen,
             );

@@ -40,7 +40,7 @@ use super::focus::Focus;
 use super::scene::Scene;
 use super::surface::{EntitySurface, SurfaceKind};
 use super::surface_regen::{regenerate_surfaces, SurfaceRegen};
-use super::VisoEngine;
+use super::{ExternalVoidField, VisoEngine};
 use crate::animation::transition::Transition;
 use crate::options::overrides::RenderInvalidation;
 use crate::options::{DisplayOverrides, DrawingMode, VisoOptions};
@@ -222,6 +222,7 @@ pub(crate) struct AnnotationsScene<'a> {
     annotations: &'a mut EntityAnnotations,
     scene: &'a mut Scene,
     density: &'a DensityStore,
+    external_void_field: Option<&'a ExternalVoidField>,
     options: &'a VisoOptions,
     regen: &'a SurfaceRegen,
 }
@@ -233,6 +234,7 @@ impl<'a> AnnotationsScene<'a> {
         annotations: &'a mut EntityAnnotations,
         scene: &'a mut Scene,
         density: &'a DensityStore,
+        external_void_field: Option<&'a ExternalVoidField>,
         options: &'a VisoOptions,
         regen: &'a SurfaceRegen,
     ) -> Self {
@@ -240,6 +242,7 @@ impl<'a> AnnotationsScene<'a> {
             annotations,
             scene,
             density,
+            external_void_field,
             options,
             regen,
         }
@@ -341,6 +344,7 @@ impl<'a> AnnotationsScene<'a> {
             &*self.scene,
             &*self.annotations,
             self.density,
+            self.external_void_field,
             self.options,
             self.regen,
         );
@@ -447,6 +451,7 @@ impl VisoEngine {
             &mut self.annotations,
             &mut self.scene,
             &self.density,
+            self.external_void_field.as_ref(),
             &self.options,
             &self.surface_regen,
         )

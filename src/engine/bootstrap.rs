@@ -198,6 +198,7 @@ impl VisoEngine {
             active_preset: None,
             frame_timing: FrameTiming::new(TARGET_FPS),
             density: DensityStore::new(),
+            external_void_field: None,
             scene: Scene::new(),
             annotations: EntityAnnotations::default(),
             surface_regen,

@@ -123,6 +123,105 @@ fn extract_cavity_mesh(cavity: &DetectedCavity) -> Option<CavityMesh> {
     Some(CavityMesh { vertices, indices })
 }
 
+/// Mesh a host-supplied void distance field directly into a smooth blob.
+///
+/// Unlike [`extract_cavity_mesh`], which meshes a binary mask via
+/// `binary_to_sdf` + negate, `phi` arrives already in marching-cubes
+/// polarity: a positive distance that is HIGH at the void center and ~0
+/// at atom walls / exterior. So it is fed straight into
+/// [`extract_isosurface`] at the passed positive `threshold` (the
+/// void-surface level) with no `binary_to_sdf` and no sign flip — the
+/// extractor wraps the region where `value >= threshold` (inside = high),
+/// which is exactly the void interior.
+///
+/// Every vertex is tagged [`isosurface_kind::CAVITY`] so the isosurface
+/// shader applies the same breathing displacement + Beer-Lambert as a
+/// detected cavity. The breathing anchor (`cavity_center`) is the
+/// world-space centroid of the cells above `threshold` (the void region
+/// center); a single centroid is shared by the whole field for now, so
+/// all blobs breathe on one rhythm. Per-blob component labeling (a
+/// distinct centroid per connected void) is a later refinement.
+///
+/// Returns an empty [`CavitySet`] when `phi` is empty, `dims` is
+/// degenerate, no cell is above `threshold`, or the extraction produces
+/// no triangles.
+#[must_use]
+pub(crate) fn mesh_void_field(
+    phi: &[f32],
+    dims: [usize; 3],
+    origin: [f32; 3],
+    spacing: [f32; 3],
+    threshold: f32,
+) -> CavitySet {
+    let [nx, ny, nz] = dims;
+    if phi.len() != nx * ny * nz || nx < 2 || ny < 2 || nz < 2 {
+        return CavitySet::default();
+    }
+
+    // World-space centroid of the cells above threshold (the void region
+    // center). Drives the radial-breath displacement; if nothing is above
+    // threshold there is no void to mesh.
+    let grid_to_world = |gx: f32, gy: f32, gz: f32| {
+        [
+            gx.mul_add(spacing[0], origin[0]),
+            gy.mul_add(spacing[1], origin[1]),
+            gz.mul_add(spacing[2], origin[2]),
+        ]
+    };
+    let idx = |x: usize, y: usize, z: usize| x * ny * nz + y * nz + z;
+    let mut sum = [0.0f32; 3];
+    let mut count = 0usize;
+    for x in 0..nx {
+        for y in 0..ny {
+            for z in 0..nz {
+                if phi[idx(x, y, z)] >= threshold {
+                    let w = grid_to_world(x as f32, y as f32, z as f32);
+                    sum[0] += w[0];
+                    sum[1] += w[1];
+                    sum[2] += w[2];
+                    count += 1;
+                }
+            }
+        }
+    }
+    if count == 0 {
+        return CavitySet::default();
+    }
+    let centroid = [
+        sum[0] / count as f32,
+        sum[1] / count as f32,
+        sum[2] / count as f32,
+    ];
+
+    let (mut vertices, indices) = extract_isosurface(
+        phi,
+        dims,
+        threshold,
+        [0, 0, 0],
+        dims,
+        grid_to_world,
+        CAVITY_RGBA,
+    );
+
+    if vertices.is_empty() || indices.is_empty() {
+        return CavitySet::default();
+    }
+
+    taubin_smooth(&mut vertices, &indices, CAVITY_SMOOTHING_ITERATIONS);
+
+    // Tag every vertex as a cavity (so the isosurface shader applies
+    // cavity-specific effects without inspecting color) and bake the
+    // shared centroid for radial-breath displacement.
+    for v in &mut vertices {
+        v.kind = isosurface_kind::CAVITY;
+        v.cavity_center = centroid;
+    }
+
+    CavitySet {
+        meshes: vec![CavityMesh { vertices, indices }],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use glam::Vec3;
@@ -139,6 +238,50 @@ mod tests {
     fn generate_cavities_single_atom_has_none() {
         // A lone atom is a solid blob with no interior voids.
         let set = generate_cavities(&[Vec3::ZERO], &[1.5], Some(1.4), 0.5);
+        assert!(set.meshes.is_empty());
+    }
+
+    #[test]
+    fn mesh_void_field_high_center_bump_meshes_cavity() {
+        // A field with a high central core (above threshold) ringed by
+        // low (sub-threshold) border voxels marches into a closed blob,
+        // and every vertex carries the CAVITY kind.
+        let dims = [5usize, 5, 5];
+        let idx =
+            |x: usize, y: usize, z: usize| (x * dims[1] + y) * dims[2] + z;
+        let mut phi = vec![0.0f32; dims[0] * dims[1] * dims[2]];
+        for x in 1..4 {
+            for y in 1..4 {
+                for z in 1..4 {
+                    phi[idx(x, y, z)] = 2.0;
+                }
+            }
+        }
+
+        let set =
+            mesh_void_field(&phi, dims, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0], 1.0);
+        assert_eq!(set.meshes.len(), 1);
+        let mesh = &set.meshes[0];
+        assert!(!mesh.vertices.is_empty());
+        assert!(!mesh.indices.is_empty());
+        assert!(mesh
+            .vertices
+            .iter()
+            .all(|v| v.kind == isosurface_kind::CAVITY));
+    }
+
+    #[test]
+    fn mesh_void_field_all_below_threshold_is_empty() {
+        let dims = [4usize, 4, 4];
+        let phi = vec![0.0f32; dims[0] * dims[1] * dims[2]];
+        let set =
+            mesh_void_field(&phi, dims, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0], 1.0);
+        assert!(set.meshes.is_empty());
+    }
+
+    #[test]
+    fn mesh_void_field_empty_input() {
+        let set = mesh_void_field(&[], [0, 0, 0], [0.0; 3], [1.0; 3], 1.0);
         assert!(set.meshes.is_empty());
     }
 }

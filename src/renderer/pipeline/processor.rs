@@ -720,6 +720,7 @@ mod tests {
             density_jobs: Vec::new(),
             surface_jobs: Vec::new(),
             cavity_jobs: Vec::new(),
+            void_field_job: None,
             surface_generation: generation,
         }))
     }

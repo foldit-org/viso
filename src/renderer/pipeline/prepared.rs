@@ -185,6 +185,25 @@ pub(crate) struct SurfaceJob {
     pub(crate) color: [f32; 4],
 }
 
+/// A host-supplied void distance field to mesh as a smooth blob.
+///
+/// `phi` is a flat row-major scalar grid (`phi[x*ny*nz + y*nz + z]`) that
+/// is HIGH at void centers and ~0 at atom walls / exterior; the worker
+/// meshes its isosurface at `threshold` directly (see
+/// [`cavity::mesh_void_field`](crate::renderer::geometry::isosurface::cavity::mesh_void_field)).
+pub(crate) struct VoidFieldJob {
+    /// Grid dimensions `[nx, ny, nz]`.
+    pub(crate) dims: [usize; 3],
+    /// World-space origin of grid cell `(0,0,0)` (Angstroms).
+    pub(crate) origin: [f32; 3],
+    /// Per-axis grid spacing (Angstroms).
+    pub(crate) spacing: [f32; 3],
+    /// Flat row-major distance field.
+    pub(crate) phi: Vec<f32>,
+    /// Positive iso-level: the void-surface level to wrap.
+    pub(crate) threshold: f32,
+}
+
 /// Body of a surface-regeneration request, boxed on the enum variant to
 /// keep [`SceneRequest`] compact.
 ///
@@ -199,6 +218,9 @@ pub(crate) struct SurfaceRebuildBody {
     pub(crate) surface_jobs: Vec<SurfaceJob>,
     /// Cavity jobs: `(positions, radii)`. Color is the fixed cavity tint.
     pub(crate) cavity_jobs: Vec<(Vec<Vec3>, Vec<f32>)>,
+    /// Host-supplied void distance field, meshed as a smooth blob in the
+    /// cavity stream. `None` when no field is set.
+    pub(crate) void_field_job: Option<VoidFieldJob>,
     /// Surface generation this request was minted at. The consumer
     /// discards a result whose generation is behind the latest submitted.
     pub(crate) surface_generation: u64,
@@ -220,6 +242,7 @@ impl SurfaceRebuildBody {
             density_jobs,
             surface_jobs,
             cavity_jobs,
+            void_field_job,
             surface_generation,
         } = self;
 
@@ -270,6 +293,25 @@ impl SurfaceRebuildBody {
         for (positions, radii) in &cavity_jobs {
             let set =
                 cavity::generate_cavities(positions, radii, Some(1.4), 0.6);
+            for mesh in &set.meshes {
+                let base = all_verts.len() as u32;
+                all_verts.extend(mesh.vertices.iter().copied());
+                all_idxs.extend(mesh.indices.iter().map(|&idx| idx + base));
+            }
+            cavity_count += set.meshes.len();
+        }
+
+        // Mesh the host-supplied void distance field directly into the
+        // cavity stream. Same CAVITY kind / tint, so it concatenates and
+        // renders alongside the detected + pre-built cavities.
+        if let Some(job) = &void_field_job {
+            let set = cavity::mesh_void_field(
+                &job.phi,
+                job.dims,
+                job.origin,
+                job.spacing,
+                job.threshold,
+            );
             for mesh in &set.meshes {
                 let base = all_verts.len() as u32;
                 all_verts.extend(mesh.vertices.iter().copied());
