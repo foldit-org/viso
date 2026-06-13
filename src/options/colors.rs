@@ -45,8 +45,8 @@ impl Default for ColorOptions {
 
         Self {
             lipid_carbon_tint: [0.76, 0.70, 0.50],
-            hydrophobic_sidechain: [0.3, 0.5, 0.9],
-            hydrophilic_sidechain: [0.95, 0.6, 0.2],
+            hydrophobic_sidechain: [0.95, 0.6, 0.2],
+            hydrophilic_sidechain: [0.3, 0.5, 0.9],
             nucleic_acid: [0.45, 0.55, 0.85],
             band_default: [0.5, 0.0, 0.5],
             band_backbone: [1.0, 0.75, 0.0],
