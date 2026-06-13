@@ -15,8 +15,9 @@ use molex::entity::molecule::id::EntityId;
 
 use super::annotations::EntityAnnotations;
 use super::command::{
-    AtomRef, BandInfo, BandTarget, ClashEndpoint, ClashInfo, PullInfo,
-    ResolvedBand, ResolvedClash, ResolvedPull,
+    AtomRef, BandInfo, BandTarget, ClashEndpoint, ClashInfo,
+    ExposedHydrophobicInfo, PullInfo, ResolvedBand, ResolvedClash,
+    ResolvedExposedHydro, ResolvedPull,
 };
 use super::entity_view::EntityView;
 use super::scene::Scene;
@@ -182,6 +183,84 @@ fn resolve_clash_endpoint(scene: &Scene, ep: &ClashEndpoint) -> Option<Vec3> {
     let state = scene.entity_state.get(&ep.entity)?;
     let positions = scene.positions.get(ep.entity)?;
     resolve_atom_in_entity(state, positions, ep.residue, &ep.atom_name)
+}
+
+/// Resolve a single exposed-hydrophobic spec to a world-space sidechain
+/// anchor. Prefers the CB atom; falls back to the sidechain heavy-atom
+/// centroid, then to CA. Returns `None` if the entity is absent or no
+/// anchor atom resolves (skipped exactly as clashes skip).
+fn resolve_exposed_hydro(
+    scene: &Scene,
+    bead: &ExposedHydrophobicInfo,
+) -> Option<ResolvedExposedHydro> {
+    let state = scene.entity_state.get(&bead.entity)?;
+    let positions = scene.positions.get(bead.entity)?;
+    let center = resolve_sidechain_anchor(state, positions, bead.residue)?;
+    Some(ResolvedExposedHydro {
+        center,
+        seed: exposed_hydro_seed(bead),
+    })
+}
+
+/// World-space sidechain anchor for a residue: CB if present, else the
+/// centroid of the residue's sidechain heavy atoms, else CA.
+fn resolve_sidechain_anchor(
+    state: &EntityView,
+    positions: &[Vec3],
+    local_residue: u32,
+) -> Option<Vec3> {
+    if let Some(cb_idx) = state
+        .topology
+        .sidechain_layout
+        .atom_index(local_residue, "CB")
+    {
+        if let Some(pos) = positions.get(cb_idx as usize) {
+            return Some(*pos);
+        }
+    }
+
+    if let Some(atom_map) = state
+        .topology
+        .sidechain_layout
+        .atom_lookup
+        .get(&local_residue)
+    {
+        let mut sum = Vec3::ZERO;
+        let mut count = 0u32;
+        for &atom_idx in atom_map.values() {
+            if let Some(pos) = positions.get(atom_idx as usize) {
+                sum += *pos;
+                count += 1;
+            }
+        }
+        if count > 0 {
+            return Some(sum / count as f32);
+        }
+    }
+
+    // Fall back to CA (backbone offset 1).
+    let range = state
+        .topology
+        .residue_atom_ranges
+        .get(local_residue as usize)?;
+    positions.get(range.start as usize + 1).copied()
+}
+
+/// Hash an exposed-hydrophobic residue ref into a stable per-bead seed in
+/// `[0, 1)`. Deterministic per (entity, residue) so the procedural "boil"
+/// is consistent across frames for a given bead but decorrelated between
+/// distinct beads (mirrors [`clash_seed`]).
+fn exposed_hydro_seed(bead: &ExposedHydrophobicInfo) -> f32 {
+    let mut h: u32 = 0x811c_9dc5;
+    let mut mix = |bytes: &[u8]| {
+        for &byte in bytes {
+            h ^= u32::from(byte);
+            h = h.wrapping_mul(0x0100_0193);
+        }
+    };
+    mix(&bead.entity.raw().to_le_bytes());
+    mix(&bead.residue.to_le_bytes());
+    (h as f32) / (u32::MAX as f32)
 }
 
 /// Resolve a pull spec to world-space atom and target positions.
@@ -374,9 +453,10 @@ impl ConstraintSpecs {
         gpu: &mut GpuPipeline,
     ) {
         let viewport = (gpu.context.config.width, gpu.context.config.height);
-        // Resolve bands, pull, and clashes against one shared context,
-        // then drop it before taking `&mut gpu` for the upload.
-        let (resolved_bands, resolved_pull, resolved_clashes) = {
+        // Resolve bands, pull, clashes, and exposed-hydrophobic beads
+        // against one shared context, then drop it before taking `&mut
+        // gpu` for the upload.
+        let (bands, pull, clashes, beads) = {
             let ctx = ConstraintContext::new(scene, annotations);
             let bands: Vec<_> = self
                 .band_specs
@@ -392,24 +472,34 @@ impl ConstraintSpecs {
                 .iter()
                 .filter_map(|c| resolve_clash(&ctx, c))
                 .collect();
-            (bands, pull, clashes)
+            let beads: Vec<_> = self
+                .exposed_hydro_specs
+                .iter()
+                .filter_map(|b| resolve_exposed_hydro(ctx.scene, b))
+                .collect();
+            (bands, pull, clashes, beads)
         };
 
         gpu.renderers.band.update(
             &gpu.context.device,
             &gpu.context.queue,
-            &resolved_bands,
+            &bands,
             Some(&options.colors),
         );
         gpu.renderers.pull.update(
             &gpu.context.device,
             &gpu.context.queue,
-            resolved_pull.as_ref(),
+            pull.as_ref(),
         );
         gpu.renderers.clash.update(
             &gpu.context.device,
             &gpu.context.queue,
-            &resolved_clashes,
+            &clashes,
+        );
+        gpu.renderers.grease.update(
+            &gpu.context.device,
+            &gpu.context.queue,
+            &beads,
         );
     }
 }
@@ -446,6 +536,67 @@ impl VisoEngine {
     pub fn update_clashes(&mut self, clashes: Vec<ClashInfo>) {
         self.constraints.clash_specs = clashes;
         self.resolve_and_render_constraints();
+    }
+
+    /// Replace the current set of exposed-hydrophobic "grease bead"
+    /// markers. An empty vec clears them. Each frame the stored refs
+    /// re-resolve to a world-space sidechain anchor so the beads track the
+    /// residues live (mirrors [`Self::update_clashes`]).
+    pub fn update_exposed_hydrophobics(
+        &mut self,
+        beads: Vec<ExposedHydrophobicInfo>,
+    ) {
+        self.constraints.exposed_hydro_specs = beads;
+        self.resolve_and_render_constraints();
+    }
+
+    /// SYNTHETIC_EXPOSED_HYDRO_DEBUG: with no real exposed-hydrophobic
+    /// query wired yet, populate a handful of synthetic flagged residues
+    /// each frame while `display.show_exposed_hydrophobics` is on (the
+    /// first few protein residues of the focused entity, or the first
+    /// protein entity in the scene when focus is `All`), so the grease
+    /// beads render for standalone visual verification. When the toggle is
+    /// off the specs are cleared. Removed wholesale when the real query
+    /// lands.
+    pub(super) fn refresh_synthetic_exposed_hydrophobics(&mut self) {
+        if !self.options.display.show_exposed_hydrophobics() {
+            if !self.constraints.exposed_hydro_specs.is_empty() {
+                self.constraints.exposed_hydro_specs.clear();
+            }
+            return;
+        }
+
+        // SYNTHETIC_EXPOSED_HYDRO_DEBUG: how many synthetic beads to seed.
+        const SYNTHETIC_EXPOSED_HYDRO_COUNT: u32 = 6;
+
+        let target = self.focused_entity().or_else(|| {
+            self.scene
+                .visible_entities(&self.annotations)
+                .find(|(_, _, state)| state.topology.is_protein())
+                .map(|(_, eid, _)| eid)
+        });
+        let Some(entity) = target else {
+            self.constraints.exposed_hydro_specs.clear();
+            return;
+        };
+        let Some(state) = self.scene.entity_state.get(&entity) else {
+            self.constraints.exposed_hydro_specs.clear();
+            return;
+        };
+        if !state.topology.is_protein() {
+            self.constraints.exposed_hydro_specs.clear();
+            return;
+        }
+
+        let residue_count = state.topology.residue_atom_ranges.len() as u32;
+        let beads: Vec<_> = (0..residue_count
+            .min(SYNTHETIC_EXPOSED_HYDRO_COUNT))
+            .map(|residue| ExposedHydrophobicInfo { entity, residue })
+            .collect();
+
+        if beads != self.constraints.exposed_hydro_specs {
+            self.constraints.exposed_hydro_specs = beads;
+        }
     }
 }
 

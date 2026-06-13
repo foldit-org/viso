@@ -378,6 +378,8 @@ pub struct DisplayOptions {
     pub show_solvent: bool,
     /// Show clashes.
     pub show_clashes: bool,
+    /// Show exposed-hydrophobic "grease bead" markers.
+    pub show_exposed_hydrophobics: bool,
 
     // --- Rendering (not per-entity) ---
     /// Surface presentation mode (VSync, immediate, mailbox).
@@ -411,6 +413,7 @@ impl Default for DisplayOptions {
             show_ions: false,
             show_solvent: false,
             show_clashes: true,
+            show_exposed_hydrophobics: false,
             present_mode: PresentMode::default(),
             bonds: BondOptions::default(),
             backbone_color_mode: BackboneColorMode::default(),
@@ -443,6 +446,13 @@ impl DisplayOptions {
     #[must_use]
     pub fn show_clashes(&self) -> bool {
         self.show_clashes
+    }
+
+    /// Whether to show exposed-hydrophobic "grease bead" markers,
+    /// resolved.
+    #[must_use]
+    pub fn show_exposed_hydrophobics(&self) -> bool {
+        self.show_exposed_hydrophobics
     }
 
     /// Global molecular surface type, resolved.

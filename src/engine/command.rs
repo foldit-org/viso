@@ -106,6 +106,22 @@ pub struct ClashInfo {
     pub severity: f32,
 }
 
+/// A flagged exposed-hydrophobic residue, referenced per-entity.
+///
+/// Names its owning entity and an entity-local residue (same per-entity
+/// principle as [`ClashEndpoint`] /
+/// [`VisoEngine::set_selection`](crate::VisoEngine::set_selection)); viso
+/// owns the flat ordering, so the host cannot compute it. The engine
+/// resolves the residue to a world-space sidechain anchor every frame so
+/// the bead marker tracks the residue live.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExposedHydrophobicInfo {
+    /// Owning entity.
+    pub entity: EntityId,
+    /// Entity-local residue index (0-based).
+    pub residue: u32,
+}
+
 /// Information about the active pull constraint.
 ///
 /// Uses a structural reference ([`AtomRef`]) for the pulled atom and a
@@ -156,6 +172,18 @@ pub(crate) struct ResolvedClash {
     pub(crate) severity: f32,
     /// Stable per-clash seed (deterministic hash of the atom pair) that
     /// decorrelates the procedural bolt's jag and flicker between clashes.
+    pub(crate) seed: f32,
+}
+
+/// Resolved exposed-hydrophobic marker with a world-space anchor, ready
+/// for the bead renderer.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ResolvedExposedHydro {
+    /// World-space sidechain anchor (CB if present, else sidechain
+    /// centroid, else CA).
+    pub(crate) center: Vec3,
+    /// Stable per-bead seed (deterministic hash of entity + residue) that
+    /// decorrelates the procedural "boil" between beads.
     pub(crate) seed: f32,
 }
 

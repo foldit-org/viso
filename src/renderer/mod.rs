@@ -34,8 +34,8 @@ use self::draw_context::DrawBindGroups;
 use self::geometry::isosurface::IsosurfaceRenderer;
 use self::geometry::{
     BackboneRenderer, BallAndStickRenderer, BandRenderer, BondRenderer,
-    ClashArcRenderer, NucleicAcidRenderer, PullRenderer, SidechainRenderer,
-    SidechainView,
+    ClashArcRenderer, GreaseBeadRenderer, NucleicAcidRenderer, PullRenderer,
+    SidechainRenderer, SidechainView,
 };
 use crate::camera::frustum::Frustum;
 use crate::gpu::{RenderContext, ShaderComposer};
@@ -76,6 +76,7 @@ pub(crate) struct Renderers {
     pub(crate) bond: BondRenderer,
     pub(crate) band: BandRenderer,
     pub(crate) clash: ClashArcRenderer,
+    pub(crate) grease: GreaseBeadRenderer,
     pub(crate) pull: PullRenderer,
     pub(crate) ball_and_stick: BallAndStickRenderer,
     pub(crate) nucleic_acid: NucleicAcidRenderer,
@@ -110,6 +111,8 @@ impl Renderers {
         let bond = BondRenderer::new(context, layouts, shader_composer)?;
         let band = BandRenderer::new(context, layouts, shader_composer)?;
         let clash = ClashArcRenderer::new(context, layouts, shader_composer)?;
+        let grease =
+            GreaseBeadRenderer::new(context, layouts, shader_composer)?;
         let pull = PullRenderer::new(context, layouts, shader_composer)?;
         let ball_and_stick =
             BallAndStickRenderer::new(context, layouts, shader_composer)?;
@@ -127,6 +130,7 @@ impl Renderers {
             bond,
             band,
             clash,
+            grease,
             pull,
             ball_and_stick,
             nucleic_acid,
@@ -221,6 +225,7 @@ impl Renderers {
         self.bond.draw(&mut rp, bind_groups);
         self.band.draw(&mut rp, bind_groups);
         self.clash.draw(&mut rp, bind_groups);
+        self.grease.draw(&mut rp, bind_groups);
         self.pull.draw(&mut rp, bind_groups);
         self.isosurface.draw(&mut rp, bind_groups);
     }
@@ -236,6 +241,7 @@ impl Renderers {
         stats.extend(self.bond.buffer_info());
         stats.extend(self.band.buffer_info());
         stats.extend(self.clash.buffer_info());
+        stats.extend(self.grease.buffer_info());
         stats.extend(self.pull.buffer_info());
         stats.extend(self.nucleic_acid.buffer_info());
         stats.extend(self.isosurface.buffer_info());

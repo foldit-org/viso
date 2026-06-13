@@ -69,8 +69,8 @@ pub(crate) struct ExternalVoidField {
     pub(crate) threshold: f32,
 }
 
-/// Stored constraint specifications (bands + pull + clashes), resolved to
-/// world-space each frame.
+/// Stored constraint specifications (bands + pull + clashes + exposed
+/// hydrophobics), resolved to world-space each frame.
 pub(crate) struct ConstraintSpecs {
     /// Band constraint specs.
     pub(crate) band_specs: Vec<command::BandInfo>,
@@ -78,6 +78,8 @@ pub(crate) struct ConstraintSpecs {
     pub(crate) pull_spec: Option<command::PullInfo>,
     /// Steric clash arc specs.
     pub(crate) clash_specs: Vec<command::ClashInfo>,
+    /// Exposed-hydrophobic "grease bead" marker specs.
+    pub(crate) exposed_hydro_specs: Vec<command::ExposedHydrophobicInfo>,
 }
 
 /// The core rendering engine for protein visualization.
@@ -193,9 +195,17 @@ impl VisoEngine {
         self.gpu.update_headlamp(&self.camera_controller.camera);
         self.update_frustum_culling();
 
+        // SYNTHETIC_EXPOSED_HYDRO_DEBUG: with no host query wired yet,
+        // synthesize a handful of flagged residues each frame while the
+        // toggle is on so the grease beads are runtime-verifiable
+        // standalone. Removed when the real exposed-hydrophobic query
+        // lands.
+        self.refresh_synthetic_exposed_hydrophobics();
+
         if !self.constraints.band_specs.is_empty()
             || self.constraints.pull_spec.is_some()
             || !self.constraints.clash_specs.is_empty()
+            || !self.constraints.exposed_hydro_specs.is_empty()
         {
             self.resolve_and_render_constraints();
         }
