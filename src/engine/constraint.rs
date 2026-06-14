@@ -549,55 +549,6 @@ impl VisoEngine {
         self.constraints.exposed_hydro_specs = beads;
         self.resolve_and_render_constraints();
     }
-
-    /// SYNTHETIC_EXPOSED_HYDRO_DEBUG: with no real exposed-hydrophobic
-    /// query wired yet, populate a handful of synthetic flagged residues
-    /// each frame while `display.show_exposed_hydrophobics` is on (the
-    /// first few protein residues of the focused entity, or the first
-    /// protein entity in the scene when focus is `All`), so the grease
-    /// beads render for standalone visual verification. When the toggle is
-    /// off the specs are cleared. Removed wholesale when the real query
-    /// lands.
-    pub(super) fn refresh_synthetic_exposed_hydrophobics(&mut self) {
-        if !self.options.display.show_exposed_hydrophobics() {
-            if !self.constraints.exposed_hydro_specs.is_empty() {
-                self.constraints.exposed_hydro_specs.clear();
-            }
-            return;
-        }
-
-        // SYNTHETIC_EXPOSED_HYDRO_DEBUG: how many synthetic beads to seed.
-        const SYNTHETIC_EXPOSED_HYDRO_COUNT: u32 = 6;
-
-        let target = self.focused_entity().or_else(|| {
-            self.scene
-                .visible_entities(&self.annotations)
-                .find(|(_, _, state)| state.topology.is_protein())
-                .map(|(_, eid, _)| eid)
-        });
-        let Some(entity) = target else {
-            self.constraints.exposed_hydro_specs.clear();
-            return;
-        };
-        let Some(state) = self.scene.entity_state.get(&entity) else {
-            self.constraints.exposed_hydro_specs.clear();
-            return;
-        };
-        if !state.topology.is_protein() {
-            self.constraints.exposed_hydro_specs.clear();
-            return;
-        }
-
-        let residue_count = state.topology.residue_atom_ranges.len() as u32;
-        let beads: Vec<_> = (0..residue_count
-            .min(SYNTHETIC_EXPOSED_HYDRO_COUNT))
-            .map(|residue| ExposedHydrophobicInfo { entity, residue })
-            .collect();
-
-        if beads != self.constraints.exposed_hydro_specs {
-            self.constraints.exposed_hydro_specs = beads;
-        }
-    }
 }
 
 #[cfg(test)]

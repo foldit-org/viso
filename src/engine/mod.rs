@@ -195,13 +195,6 @@ impl VisoEngine {
         self.gpu.update_headlamp(&self.camera_controller.camera);
         self.update_frustum_culling();
 
-        // SYNTHETIC_EXPOSED_HYDRO_DEBUG: with no host query wired yet,
-        // synthesize a handful of flagged residues each frame while the
-        // toggle is on so the grease beads are runtime-verifiable
-        // standalone. Removed when the real exposed-hydrophobic query
-        // lands.
-        self.refresh_synthetic_exposed_hydrophobics();
-
         if !self.constraints.band_specs.is_empty()
             || self.constraints.pull_spec.is_some()
             || !self.constraints.clash_specs.is_empty()
