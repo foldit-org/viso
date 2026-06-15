@@ -38,6 +38,7 @@ impl VisoEngine {
             &mut self.gpu,
             &mut self.animation,
         );
+        self.resolve_and_upload_bond_connections();
     }
 
     /// Sync scene data to renderers with per-entity transitions.
@@ -56,17 +57,24 @@ impl VisoEngine {
             &mut self.animation,
             entity_transitions,
         );
+        self.resolve_and_upload_bond_connections();
     }
 
     /// Apply any pending scene data from the background `SceneProcessor`.
     pub fn apply_pending_scene(&mut self) {
-        SyncPipeline::apply_pending_scene(
+        let applied = SyncPipeline::apply_pending_scene(
             &mut self.scene,
             &self.annotations,
             &self.options,
             &mut self.gpu,
             &mut self.animation,
         );
+        // A consumed mesh just finalized positions and lifted the sheet
+        // offsets onto each EntityView; re-resolve the bond capsules so a
+        // sheet-residue SG / backbone hbond lands on the drawn geometry.
+        if applied {
+            self.resolve_and_upload_bond_connections();
+        }
     }
 
     /// Apply any pending animation frame from the background thread.

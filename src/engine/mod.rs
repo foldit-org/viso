@@ -1,4 +1,6 @@
 pub(crate) mod annotations;
+/// Seam-time hydrogen-bond + disulfide connection resolution.
+mod bond_connections;
 mod bootstrap;
 /// Structural reference types for atom-anchored constraints.
 pub(crate) mod command;
@@ -208,15 +210,23 @@ impl VisoEngine {
 
     /// Tick animation (both trajectory and structural), submitting any
     /// interpolated frame to the background thread.
+    ///
+    /// Whenever a tick mutates `scene.positions` (a trajectory frame, or a
+    /// structural-animation step), the bond capsules are re-resolved and
+    /// re-uploaded against the just-mutated positions so hydrogen-bond and
+    /// disulfide capsules track the moving atoms rather than freezing on the
+    /// last synced coordinate.
     fn tick_animation(&mut self) {
         let now = Instant::now();
         let trajectory_frame = self.animation.advance_trajectory(now);
         if let Some(frame) = trajectory_frame {
             self.apply_trajectory_frame(&frame);
             self.submit_animation_frame();
+            self.resolve_and_upload_bond_connections();
         }
         if self.animation.tick(now, &mut self.scene.positions) {
             self.submit_animation_frame();
+            self.resolve_and_upload_bond_connections();
         }
     }
 

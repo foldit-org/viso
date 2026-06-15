@@ -12,6 +12,7 @@
 
 use glam::{UVec2, Vec2, Vec3};
 use molex::entity::molecule::id::EntityId;
+use rustc_hash::FxHashMap;
 
 use super::annotations::EntityAnnotations;
 use super::command::{
@@ -19,8 +20,9 @@ use super::command::{
     ExposedHydrophobicInfo, PullInfo, ResolvedBand, ResolvedClash,
     ResolvedExposedHydro, ResolvedPull,
 };
-use super::entity_view::EntityView;
+use super::entity_view::{EntityView, RibbonBackbone};
 use super::scene::Scene;
+use super::scene_state::rendered_atom_position;
 use super::{ConstraintSpecs, VisoEngine};
 use crate::camera::controller::CameraController;
 use crate::options::{DrawingMode, VisoOptions};
@@ -136,15 +138,20 @@ fn resolve_band(
 ///
 /// Each endpoint names its owning entity and an entity-local residue, so
 /// resolution is direct: look the entity up in the Scene and resolve the
-/// atom in place, with no flat-index indirection. The clash is skipped
-/// (returns `None`) if either endpoint's entity is absent or its atom
-/// fails to resolve, exactly as bands skip.
+/// atom in place, with no flat-index indirection. Each endpoint then routes
+/// through [`resolve_hbond_endpoint`] → [`rendered_atom_position`] (the same
+/// wrapper the hbond/disulfide paths use) so a clash on a Cartoon-mode
+/// residue lands on the DRAWN atom: a backbone endpoint projects onto the
+/// ribbon spline, a sidechain endpoint picks up the sheet-flattening offset.
+/// The clash is skipped (returns `None`) if either endpoint's entity is
+/// absent or its atom fails to resolve, exactly as bands skip.
 fn resolve_clash(
     ctx: &ConstraintContext<'_>,
+    ribbons: &FxHashMap<EntityId, RibbonBackbone>,
     clash: &ClashInfo,
 ) -> Option<ResolvedClash> {
-    let endpoint_a = resolve_clash_endpoint(ctx.scene, &clash.a)?;
-    let endpoint_b = resolve_clash_endpoint(ctx.scene, &clash.b)?;
+    let endpoint_a = resolve_hbond_endpoint(ctx.scene, ribbons, &clash.a)?;
+    let endpoint_b = resolve_hbond_endpoint(ctx.scene, ribbons, &clash.b)?;
     Some(ResolvedClash {
         endpoint_a,
         endpoint_b,
@@ -185,17 +192,84 @@ fn resolve_clash_endpoint(scene: &Scene, ep: &ClashEndpoint) -> Option<Vec3> {
     resolve_atom_in_entity(state, positions, ep.residue, &ep.atom_name)
 }
 
+/// Resolve one hbond endpoint to its rendered world-space position via
+/// the shared [`rendered_atom_position`] resolver.
+///
+/// The resolver applies both Cartoon-mode render transforms: backbone N/O/C
+/// project onto the ribbon spline, and a sidechain endpoint on a flattened
+/// beta-strand picks up the sheet offset (so a sidechain↔backbone hbond's
+/// sidechain end lands on the drawn flattened stick, not the raw atom).
+/// `ep.residue` is the entity-local residue index the resolver expects.
+fn resolve_hbond_endpoint(
+    scene: &Scene,
+    ribbons: &FxHashMap<EntityId, RibbonBackbone>,
+    ep: &ClashEndpoint,
+) -> Option<Vec3> {
+    let raw = resolve_clash_endpoint(scene, ep)?;
+    let Some(state) = scene.entity_state.get(&ep.entity) else {
+        return Some(raw);
+    };
+    Some(rendered_atom_position(
+        raw,
+        state.drawing_mode,
+        state.topology.is_protein(),
+        ribbons.get(&ep.entity),
+        &state.sheet_offsets,
+        ep.residue,
+        &ep.atom_name,
+    ))
+}
+
+/// Build the per-frame ribbon-projection cache for Cartoon-mode protein
+/// entities, mirroring the sync-time cache the molex backbone-hbond path
+/// builds. Shared each frame by the clash endpoints and the hbond/disulfide
+/// block. Entities not in Cartoon mode, non-proteins, or too short to
+/// project are absent — their backbone endpoints fall back to raw.
+pub(super) fn build_hbond_ribbons(
+    scene: &Scene,
+) -> FxHashMap<EntityId, RibbonBackbone> {
+    scene
+        .entity_state
+        .iter()
+        .filter(|(_, state)| {
+            state.drawing_mode == DrawingMode::Cartoon
+                && state.topology.is_protein()
+        })
+        .filter_map(|(&id, state)| {
+            let positions = scene.positions.get(id)?;
+            let ribbon = RibbonBackbone::project(&state.topology, positions)?;
+            Some((id, ribbon))
+        })
+        .collect()
+}
+
 /// Resolve a single exposed-hydrophobic spec to a world-space sidechain
 /// anchor. Prefers the CB atom; falls back to the sidechain heavy-atom
-/// centroid, then to CA. Returns `None` if the entity is absent or no
-/// anchor atom resolves (skipped exactly as clashes skip).
+/// centroid, then to CA. The raw anchor is then routed through
+/// [`rendered_atom_position`] as a sidechain atom so a bead on a flattened
+/// beta-strand picks up the sheet-flattening offset and sits on the drawn
+/// sidechain rather than the raw atom. Returns `None` if the entity is
+/// absent or no anchor atom resolves (skipped exactly as clashes skip).
 fn resolve_exposed_hydro(
     scene: &Scene,
     bead: &ExposedHydrophobicInfo,
 ) -> Option<ResolvedExposedHydro> {
     let state = scene.entity_state.get(&bead.entity)?;
     let positions = scene.positions.get(bead.entity)?;
-    let center = resolve_sidechain_anchor(state, positions, bead.residue)?;
+    let raw = resolve_sidechain_anchor(state, positions, bead.residue)?;
+    // The anchor is a sidechain point (CB / centroid / CA fallback); the
+    // sheet offset is per-residue and uniform across the sidechain, so route
+    // it through the resolver as a sidechain atom name ("CB"). The ribbon is
+    // irrelevant here (sidechain branch never touches it), so pass none.
+    let center = rendered_atom_position(
+        raw,
+        state.drawing_mode,
+        state.topology.is_protein(),
+        None,
+        &state.sheet_offsets,
+        bead.residue,
+        "CB",
+    );
     Some(ResolvedExposedHydro {
         center,
         seed: exposed_hydro_seed(bead),
@@ -453,6 +527,17 @@ impl ConstraintSpecs {
         gpu: &mut GpuPipeline,
     ) {
         let viewport = (gpu.context.config.width, gpu.context.config.height);
+        // Ribbon-projection cache for Cartoon-mode protein entities, built
+        // once per frame and shared by the clash endpoints (which may be
+        // backbone atoms needing the spline). Sidechain endpoints ignore it
+        // (they take the sheet offset), and entities not in Cartoon / too
+        // short to project are absent so those endpoints fall back to raw.
+        // Only built when something consumes it (clashes); empty otherwise.
+        let ribbons = if self.clash_specs.is_empty() {
+            FxHashMap::default()
+        } else {
+            build_hbond_ribbons(scene)
+        };
         // Resolve bands, pull, clashes, and exposed-hydrophobic beads
         // against one shared context, then drop it before taking `&mut
         // gpu` for the upload.
@@ -470,7 +555,7 @@ impl ConstraintSpecs {
             let clashes: Vec<_> = self
                 .clash_specs
                 .iter()
-                .filter_map(|c| resolve_clash(&ctx, c))
+                .filter_map(|c| resolve_clash(&ctx, &ribbons, c))
                 .collect();
             let beads: Vec<_> = self
                 .exposed_hydro_specs
@@ -515,6 +600,19 @@ impl VisoEngine {
             &self.annotations,
             &self.options,
             &self.camera_controller,
+            &mut self.gpu,
+        );
+    }
+
+    /// Resolve the hydrogen-bond and disulfide connection links to capsules
+    /// and re-upload the bond buffer. Fired at every moment positions
+    /// become final (sync, consumed mesh, animation/trajectory tick) so the
+    /// capsules never strand mid-motion.
+    pub(super) fn resolve_and_upload_bond_connections(&mut self) {
+        super::bond_connections::resolve_and_upload_bond_connections(
+            &self.scene,
+            &self.annotations,
+            &self.options,
             &mut self.gpu,
         );
     }

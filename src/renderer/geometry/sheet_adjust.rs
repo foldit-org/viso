@@ -26,6 +26,22 @@ fn lookup_offset(offsets: &[SheetOffset], res_idx: u32) -> Option<Vec3> {
         .map(|i| offsets[i].offset)
 }
 
+/// Sheet-flattening offset for one residue, or `None` if the residue is
+/// not on a flattened beta-strand.
+///
+/// Same binary search the mesh-build adjustment uses (the offsets are
+/// ascending by `residue_idx`), exposed so the render-position resolver
+/// can re-anchor a sidechain bond endpoint onto the drawn sheet-flattened
+/// stick. Caller passes an entity-local residue index and the entity's own
+/// offset slice (ascending, base 0).
+#[must_use]
+pub(crate) fn sheet_offset_at(
+    offsets: &[SheetOffset],
+    residue: u32,
+) -> Option<Vec3> {
+    lookup_offset(offsets, residue)
+}
+
 /// One-time precondition check for [`lookup_offset`]'s binary search.
 /// Call once per `offsets` slice before the per-atom loop, never inside it.
 fn debug_assert_offsets_sorted(offsets: &[SheetOffset]) {

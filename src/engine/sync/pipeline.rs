@@ -15,9 +15,9 @@ use molex::{Assembly, MoleculeType, SSType};
 use rustc_hash::FxHashMap;
 
 use super::super::annotations::EntityAnnotations;
-use super::super::entity_view::{EntityView, RibbonBackbone};
+use super::super::entity_view::EntityView;
 use super::super::scene::Scene;
-use super::super::scene_state::{BondResolveInput, SceneRenderState};
+use super::super::scene_state::SceneRenderState;
 use super::super::trajectory::TrajectoryFrame;
 use crate::animation::transition::Transition;
 use crate::animation::AnimationState;
@@ -71,11 +71,25 @@ impl SyncPipeline {
             match scene.entity_state.entry(id) {
                 std::collections::hash_map::Entry::Occupied(mut slot) => {
                     let state = slot.get_mut();
+                    // sheet_offsets are entity-local-residue-indexed. They
+                    // stay index-valid iff the residue layout (per-residue
+                    // atom ranges) is unchanged. Clear only on a genuine
+                    // re-layout, where a stale slice would index into a
+                    // different residue space; the next prepared mesh
+                    // refills it. On a coord-only republish (same layout,
+                    // e.g. an interactive pull) retain the existing slice so
+                    // sidechain-anchored geometry does not snap to the
+                    // un-flattened position between async rebuilds.
+                    let layout_unchanged = state.topology.residue_atom_ranges
+                        == topology.residue_atom_ranges;
                     state.topology = topology;
                     state.ss_override = ss_override;
                     state.drawing_mode = drawing_mode;
                     state.mesh_version = fresh_version;
                     state.per_residue_colors = None;
+                    if !layout_unchanged {
+                        state.sheet_offsets.clear();
+                    }
                 }
                 std::collections::hash_map::Entry::Vacant(slot) => {
                     let _ = slot.insert(EntityView {
@@ -83,6 +97,7 @@ impl SyncPipeline {
                         ss_override,
                         topology,
                         per_residue_colors: None,
+                        sheet_offsets: Vec::new(),
                         mesh_version: fresh_version,
                     });
                 }
@@ -168,16 +183,6 @@ impl SyncPipeline {
     ) {
         let request_entities =
             Self::build_full_rebuild_entities(scene, annotations, options);
-        Self::resolve_structural_bonds_into_render_state(
-            scene,
-            annotations,
-            options,
-        );
-        let _ = gpu.renderers.bond.update(
-            &gpu.context.device,
-            &gpu.context.queue,
-            scene.render_state.structural_bonds(),
-        );
 
         let entity_options = Self::resolve_entity_options(annotations, options);
         animation.merge_pending_transitions(entity_transitions);
@@ -202,42 +207,6 @@ impl SyncPipeline {
                 generation,
                 topology_generation,
             })));
-    }
-
-    /// Build the per-sync ribbon cache and let
-    /// [`SceneRenderState::update_structural_bonds`] produce this
-    /// frame's `Vec<StructuralBond>` directly on
-    /// `scene.render_state`. The resolver reads visibility, drawing
-    /// mode, and topology straight off the engine's existing maps --
-    /// the only thing worth caching is the spline projection.
-    fn resolve_structural_bonds_into_render_state(
-        scene: &mut Scene,
-        annotations: &EntityAnnotations,
-        options: &VisoOptions,
-    ) {
-        let ribbons: FxHashMap<EntityId, RibbonBackbone> = scene
-            .entity_state
-            .iter()
-            .filter(|(_, state)| {
-                state.drawing_mode == DrawingMode::Cartoon
-                    && state.topology.is_protein()
-            })
-            .filter_map(|(&id, state)| {
-                let positions = scene.positions.get(id)?;
-                let ribbon =
-                    RibbonBackbone::project(&state.topology, positions)?;
-                Some((id, ribbon))
-            })
-            .collect();
-        let input = BondResolveInput {
-            positions: &scene.positions,
-            entity_views: &scene.entity_state,
-            entity_visibility: &annotations.visibility,
-            ribbons: &ribbons,
-            options: &options.display.bonds,
-            colors: &options.colors,
-        };
-        scene.render_state.update_structural_bonds(&input);
     }
 
     fn resolve_entity_options(
@@ -370,16 +339,26 @@ impl SyncPipeline {
     }
 
     /// Apply any pending scene data from the background `SceneProcessor`.
+    ///
+    /// Returns `true` when a prepared mesh was consumed (positions and
+    /// sheet offsets just became final), so the caller re-resolves and
+    /// re-uploads the bond capsules against the new positions.
     pub(crate) fn apply_pending_scene(
         scene: &mut Scene,
         annotations: &EntityAnnotations,
         options: &VisoOptions,
         gpu: &mut GpuPipeline,
         animation: &mut AnimationState,
-    ) {
+    ) -> bool {
         let Some(prepared) = gpu.scene_processor.try_recv_rebuild() else {
-            return;
+            return false;
         };
+
+        // Lift the per-entity sheet-flattening offsets the mesh build just
+        // produced onto each EntityView, so structural-bond endpoint
+        // resolution (disulfides, hbonds) re-anchors sidechain atoms onto
+        // the same flattened sticks the mesh draws.
+        Self::store_sheet_offsets(scene, &prepared);
 
         let entity_transitions = animation.take_pending_transitions();
         let animating = !entity_transitions.is_empty();
@@ -403,6 +382,51 @@ impl SyncPipeline {
             &prepared,
             animating,
         );
+        true
+    }
+
+    /// Partition the prepared mesh's whole-assembly sheet-flattening
+    /// offsets back onto each [`EntityView`], re-based to entity-local
+    /// residue indices.
+    ///
+    /// `prepared.backbone.sheet_offsets` are global-residue-indexed
+    /// (mesh concatenation rebases each entity's base-0 offsets by its
+    /// global residue base); `prepared.entity_residue_offsets` records
+    /// each entity's base in ascending assembly-visible order. Both lists
+    /// are ascending by residue index, so one linear pass buckets each
+    /// offset into its owning entity and subtracts the base. No geometry
+    /// math runs here: these are the exact deltas the mesh used to shift
+    /// the entity's sidechain stick mesh.
+    fn store_sheet_offsets(scene: &mut Scene, prepared: &PreparedRebuild) {
+        // Clear first so an entity whose strands disappeared this rebuild
+        // ends up with an empty slice rather than a stale one.
+        for state in scene.entity_state.values_mut() {
+            state.sheet_offsets.clear();
+        }
+
+        let bases = &prepared.entity_residue_offsets;
+        for (i, &(eid, base)) in bases.iter().enumerate() {
+            // This entity owns global residues `[base, next_base)`.
+            let next_base = bases.get(i + 1).map_or(u32::MAX, |&(_, b)| b);
+            let Some(state) = scene.entity_state.get_mut(&eid) else {
+                continue;
+            };
+            state.sheet_offsets.extend(
+                prepared
+                    .backbone
+                    .sheet_offsets
+                    .iter()
+                    .filter(|so| {
+                        so.residue_idx >= base && so.residue_idx < next_base
+                    })
+                    .map(|so| {
+                        crate::renderer::geometry::backbone::SheetOffset {
+                            residue_idx: so.residue_idx - base,
+                            offset: so.offset,
+                        }
+                    }),
+            );
+        }
     }
 
     /// Kick off per-entity animation runners using the current

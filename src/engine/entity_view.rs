@@ -23,6 +23,7 @@ use crate::renderer::entity_topology::{
     EntityTopology, NucleotideRingLayout, SidechainLayout,
 };
 use crate::renderer::geometry::backbone::curve::project_backbone_atoms;
+use crate::renderer::geometry::backbone::SheetOffset;
 use crate::renderer::geometry::nucleic_acid::NA_DEFAULT_COLOR;
 
 // ---------------------------------------------------------------------------
@@ -49,6 +50,14 @@ pub(crate) struct EntityView {
     /// Cached here so main-thread color uploads can concatenate across
     /// entities without recomputing.
     pub(crate) per_residue_colors: Option<Vec<[f32; 3]>>,
+    /// Per-residue sheet-flattening offsets for this entity's beta-strand
+    /// residues, entity-local residue index, ascending. Lifted off the
+    /// background mesh build (the same offsets that shift this entity's
+    /// sidechain stick mesh in Cartoon mode) so structural-bond endpoint
+    /// resolution can re-anchor sidechain atoms onto the drawn flattened
+    /// sticks. Refreshed whenever the prepared mesh is applied; empty when
+    /// no strand residues were flattened (or before the first mesh lands).
+    pub(crate) sheet_offsets: Vec<SheetOffset>,
     /// Bumped whenever this entity's geometry needs to be regenerated.
     pub(crate) mesh_version: u64,
 }
