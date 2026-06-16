@@ -434,7 +434,7 @@ impl<'a> AnnotationsScene<'a> {
     }
 }
 
-// ── Engine-side annotation dispatchers ─────────────────────────────
+// Engine-side annotation dispatchers
 //
 // Each entry point either (a) takes a raw `u32`, translates to
 // `EntityId` once, and forwards to [`AnnotationsScene`] /
@@ -625,11 +625,9 @@ impl VisoEngine {
     /// Set per-entity appearance overrides.
     ///
     /// Diffs against the entity's previous overrides and dispatches only
-    /// the invalidations that actually matter — a `surface_kind` change
+    /// the invalidations that actually matter: a `surface_kind` change
     /// fires `RE_SURFACE`, a `color_scheme` change fires `RE_COLOR`, and
-    /// so on. Previously this blindly called `sync_scene_to_renderers`
-    /// regardless of which field changed (and never triggered surface
-    /// regen for per-entity `surface_kind` changes — now fixed).
+    /// so on.
     pub fn set_entity_appearance(
         &mut self,
         entity_id: EntityId,

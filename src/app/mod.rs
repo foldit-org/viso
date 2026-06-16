@@ -50,7 +50,7 @@ pub struct VisoApp {
 }
 
 impl VisoApp {
-    // ── Construction ───────────────────────────────────────────────
+    // Construction
 
     /// An empty app — a zero-entity `Assembly`. The caller pushes the
     /// initial snapshot to viso via [`Self::publish`] (or
@@ -101,7 +101,7 @@ impl VisoApp {
         Ok(Self::from_entities(entities))
     }
 
-    // ── Read accessors ─────────────────────────────────────────────
+    // Read accessors
 
     /// Read-only access to the app's current `Assembly`.
     ///
@@ -113,7 +113,7 @@ impl VisoApp {
         &self.assembly
     }
 
-    // ── Publish helper ─────────────────────────────────────────────
+    // Publish helper
 
     /// Push the current `Assembly` snapshot to the engine. Library
     /// hosts call this once after constructing both the app and the
@@ -124,7 +124,7 @@ impl VisoApp {
         engine.set_assembly(Arc::new(self.assembly.clone()));
     }
 
-    // ── Lifecycle mutations ────────────────────────────────────────
+    // Lifecycle mutations
 
     /// Load entities into the scene. Returns the assigned entity IDs.
     /// If `fit_camera` is true, fits the viewer to the combined

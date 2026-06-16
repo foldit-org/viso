@@ -513,7 +513,7 @@ fn resolve_atom_in_entity(
     }
 }
 
-// ── ConstraintSpecs: per-frame resolution ──
+// ConstraintSpecs: per-frame resolution
 
 impl ConstraintSpecs {
     /// Resolve stored band/pull specs to world-space and update the
@@ -589,7 +589,7 @@ impl ConstraintSpecs {
     }
 }
 
-// ── Engine-side dispatchers ──
+// Engine-side dispatchers
 
 impl VisoEngine {
     /// Resolve stored band/pull specs to world-space and update

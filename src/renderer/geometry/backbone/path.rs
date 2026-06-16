@@ -56,10 +56,6 @@ pub(crate) fn segment_by_ss(ss_types: &[SSType]) -> Vec<SSSegment> {
 }
 
 /// Position delta applied to one flattened beta-sheet residue.
-///
-/// Replaces the bare `(u32, Vec3)` pair that was threaded through ~15
-/// signatures and fields -- `residue_idx` and `offset` were trivially
-/// swappable as a positional tuple.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SheetOffset {
     /// Global residue index this delta applies to.

@@ -100,7 +100,7 @@ fn to_display_options_patches_all_fields() {
     assert_eq!(result.helix_style(), base.helix_style());
 }
 
-// ── RenderInvalidation tests ───────────────────────────────────────
+// RenderInvalidation tests
 
 #[test]
 fn invalidation_none_is_empty() {
@@ -239,7 +239,7 @@ fn diff_simultaneous_changes_union() {
     assert!(inv.contains(RenderInvalidation::RE_SURFACE));
 }
 
-// ── apply_json_field contract tests ────────────────────────────────
+// apply_json_field contract tests
 
 #[test]
 fn apply_json_null_clears_field() {

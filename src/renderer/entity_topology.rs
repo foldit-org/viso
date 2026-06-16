@@ -20,9 +20,7 @@ use glam::Vec3;
 use molex::{CovalentBond, Element, MoleculeType, NucleotideRing, SSType};
 use rustc_hash::FxHashMap;
 
-// ---------------------------------------------------------------------------
 // EntityTopology
-// ---------------------------------------------------------------------------
 
 /// Per-segment protein backbone atom indices, struct-of-arrays form.
 ///
@@ -31,10 +29,9 @@ use rustc_hash::FxHashMap;
 /// entity-local atom indices that can be resolved against the
 /// entity's `positions` slice via [`ProteinBackboneIndices::resolve`].
 ///
-/// Replaces the prior interleaved `[N, CA, C, ...]` `Vec<usize>` shape
-/// so the carbonyl-O atom is a first-class member of the backbone
-/// (load-bearing for the sheet peptide-plane normal: PyMOL / Mol* /
-/// ChimeraX / rosetta-interactive all use O directly or indirectly).
+/// The carbonyl-O atom is a first-class member of the backbone because
+/// the sheet peptide-plane normal needs it (PyMOL / Mol* / ChimeraX /
+/// rosetta-interactive all use O directly or indirectly).
 #[derive(Clone, Default)]
 pub(crate) struct ProteinBackboneIndices {
     pub(crate) n: Vec<usize>,
@@ -354,9 +351,7 @@ impl EntityTopology {
     }
 }
 
-// ---------------------------------------------------------------------------
 // SidechainLayout
-// ---------------------------------------------------------------------------
 
 /// Sidechain atom-index layout for a single entity.
 ///
@@ -416,9 +411,7 @@ impl SidechainLayout {
     }
 }
 
-// ---------------------------------------------------------------------------
 // NucleotideRingLayout
-// ---------------------------------------------------------------------------
 
 /// Resolve a ring's entity-local atom indices to world positions,
 /// all-or-nothing.

@@ -67,7 +67,7 @@ use crate::renderer::entity_topology::{NaBackboneChain, ProteinBackboneChain};
 use crate::renderer::mesh::{create_mesh_pipeline, MeshPass, MeshPipelineDef};
 use crate::util::hash::hash_vec3_slice_summary;
 
-// ==================== VERTEX FORMAT ====================
+// VERTEX FORMAT
 
 /// 52-byte backbone vertex, shared by tube and ribbon pipelines.
 #[repr(C)]
@@ -115,7 +115,7 @@ pub(crate) fn backbone_vertex_buffer_layout(
     }
 }
 
-// ==================== RENDERER ====================
+// RENDERER
 
 /// Unified backbone renderer with tube + ribbon passes.
 pub(crate) struct BackboneRenderer {

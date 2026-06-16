@@ -30,9 +30,7 @@ use crate::renderer::{GpuPipeline, PipelineLayouts, Renderers};
 /// Target FPS limit.
 const TARGET_FPS: u32 = 300;
 
-// ---------------------------------------------------------------------------
 // FrameTiming
-// ---------------------------------------------------------------------------
 
 /// Frame timing with FPS calculation and optional frame limiting.
 pub(crate) struct FrameTiming {
@@ -91,9 +89,7 @@ impl FrameTiming {
     }
 }
 
-// ---------------------------------------------------------------------------
 // GPU pipeline initialization
-// ---------------------------------------------------------------------------
 
 struct GpuBootstrap {
     shader_composer: ShaderComposer,
@@ -147,9 +143,7 @@ fn init_gpu_pipeline(
     })
 }
 
-// ---------------------------------------------------------------------------
 // VisoEngine construction
-// ---------------------------------------------------------------------------
 
 impl VisoEngine {
     /// Build an engine over a prepared [`RenderContext`].

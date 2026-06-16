@@ -136,9 +136,7 @@ impl TrajectoryPlayer {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Loader
-// ---------------------------------------------------------------------------
 
 /// Pick the first visible protein entity as the trajectory target.
 pub(crate) fn pick_trajectory_target(

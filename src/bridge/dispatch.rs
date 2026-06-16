@@ -142,7 +142,7 @@ pub(crate) fn dispatch_engine_action(
     }
 }
 
-// ── State push helpers ──────────────────────────────────────────────────
+// State push helpers
 
 /// Serialize and push the current options state.
 pub(crate) fn push_options(engine: &VisoEngine, host: &dyn UiHost) {
@@ -164,7 +164,7 @@ pub(crate) fn push_density_maps(engine: &VisoEngine, host: &dyn UiHost) {
     host.push("density_maps", &json);
 }
 
-// ── Engine mutators ─────────────────────────────────────────────────────
+// Engine mutators
 
 /// Apply a `SetOption` patch by serializing options, mutating the JSON,
 /// and deserializing back. Falls back to inserting the field on the

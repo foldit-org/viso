@@ -145,7 +145,7 @@ pub struct DisplayOverrides {
     #[schemars(default = "default_palette_mode")]
     pub palette_mode: Option<PaletteMode>,
 
-    // --- Structural bond overrides ---
+    // Structural bond overrides
     /// Whether to show hydrogen bonds for this entity.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]

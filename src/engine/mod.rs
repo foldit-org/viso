@@ -2,14 +2,12 @@ pub(crate) mod annotations;
 /// Seam-time hydrogen-bond + disulfide connection resolution.
 mod bond_connections;
 mod bootstrap;
-/// Structural reference types for atom-anchored constraints.
 pub(crate) mod command;
 pub(crate) mod constraint;
 mod culling;
 mod density;
 pub(crate) mod density_store;
 pub(crate) mod entity_view;
-/// Focus state for tab cycling.
 pub(crate) mod focus;
 /// Pointer / scroll / modifier intake and click-expansion helpers.
 mod intake;
@@ -97,14 +95,14 @@ pub(crate) struct ConstraintSpecs {
 /// overrides, behavior overrides, camera state) are mutated through
 /// engine methods directly.
 pub struct VisoEngine {
-    // ── GPU + camera ──────────────────────────────────────────────
+    // GPU + camera
     /// All GPU infrastructure (device, renderers, picking, post-process,
     /// lighting, cursor, culling state).
     pub(crate) gpu: GpuPipeline,
     /// Orbital camera controller.
     pub(crate) camera_controller: CameraController,
 
-    // ── Runtime state ─────────────────────────────────────────────
+    // Runtime state
     /// Stored band/pull constraint specs.
     pub(crate) constraints: ConstraintSpecs,
     /// Structural animation, trajectory, and pending transitions.
@@ -122,7 +120,7 @@ pub struct VisoEngine {
     /// into the cavity stream. `None` when no field is set.
     pub(crate) external_void_field: Option<ExternalVoidField>,
 
-    // ── Assembly ingest + derived per-entity state ────────────────
+    // Assembly ingest + derived per-entity state
     /// Pending snapshot pushed by the host, latest applied snapshot,
     /// generation tracker, plus the per-entity render-ready derived
     /// state rebuilt on every sync (`SceneRenderState`, `EntityView`s,
@@ -130,14 +128,14 @@ pub struct VisoEngine {
     /// See [`Scene`].
     pub(crate) scene: Scene,
 
-    // ── User-authored per-entity annotations ──────────────────────
+    // User-authored per-entity annotations
     /// Per-entity opinions that ride alongside the Assembly: focus,
     /// visibility, behaviors, appearance overrides, scores, SS
     /// overrides, surfaces. All maps keyed on [`EntityId`] so lookups
     /// are O(1). See [`EntityAnnotations`].
     pub(crate) annotations: EntityAnnotations,
 
-    // ── Background isosurface-mesh regeneration ───────────────────
+    // Background isosurface-mesh regeneration
     /// Holder for the surface-regen submit channel used by
     /// [`surface_regen::regenerate_surfaces`]. Requests run on the shared
     /// scene-processor worker; main-thread polling happens in
@@ -155,7 +153,7 @@ pub struct VisoEngine {
     /// feeds a fixed `dt`, so only a wall clock measures real elapsed time.
     last_publish_at: Instant,
 
-    // ── Input state ───────────────────────────────────────────────
+    // Input state
     /// Multi-click classifier + drag-detection state, fed by
     /// [`Self::feed_pointer_motion`] and [`Self::feed_pointer_button`].
     pub(crate) input_state: crate::input::click_state::InputState,
@@ -165,7 +163,7 @@ pub struct VisoEngine {
     pub(crate) shift_pressed: bool,
 }
 
-// ── Frame loop ──
+// Frame loop
 
 impl VisoEngine {
     /// Per-frame updates: animation ticks, uniform uploads, frustum
@@ -292,7 +290,7 @@ impl VisoEngine {
     }
 }
 
-// ── Lifecycle + queries ──
+// Lifecycle + queries
 
 impl VisoEngine {
     /// Advance camera animation and apply any pending scene from the

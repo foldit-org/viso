@@ -46,7 +46,7 @@ pub(crate) struct PanelController {
     load_rx: Option<mpsc::Receiver<Result<String, String>>>,
 }
 
-// ── Constants ────────────────────────────────────────────────────────────
+// Constants
 
 impl PanelController {
     /// Size of the arrow strip in CSS pixels (matches `.arrow-column`
@@ -54,7 +54,7 @@ impl PanelController {
     const ARROW_SIZE_CSS: u32 = 32;
 }
 
-// ── Construction ─────────────────────────────────────────────────────────
+// Construction
 
 impl PanelController {
     /// Create a new controller with default state (expanded, no webview yet).
@@ -102,7 +102,7 @@ impl PanelController {
     }
 }
 
-// ── Runtime ──────────────────────────────────────────────────────────────
+// Runtime
 
 impl PanelController {
     /// Toggle collapsed state. The arrow strip stays visible; only the
@@ -274,7 +274,7 @@ impl PanelController {
     }
 }
 
-// ── Load handlers ────────────────────────────────────────────────────────
+// Load handlers
 
 impl PanelController {
     /// Parse a local file and load its entities into the engine.
@@ -396,7 +396,7 @@ impl PanelController {
     }
 }
 
-// ── Helpers (free functions) ─────────────────────────────────────────────
+// Helpers (free functions)
 
 /// Parse a file (structure or density) and load it into the engine.
 fn parse_and_load(

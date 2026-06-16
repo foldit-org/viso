@@ -143,7 +143,7 @@ impl VisoEngine {
     }
 }
 
-// ── Click-expansion helpers ──
+// Click-expansion helpers
 
 /// Per-entity residue list for a single-click on `target`. Non-residue
 /// targets (atom picks, background) produce an empty expansion.

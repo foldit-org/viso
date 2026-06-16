@@ -173,9 +173,6 @@ impl GeometryOptions {
 
 /// Per-chain backbone tessellation detail: segments along the spline per
 /// residue and vertices around each cross-section ring.
-///
-/// Replaces the bare `(usize, usize)` LOD tuple -- the field order was
-/// swap-bait across the six signatures that threaded it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChainLod {
     /// Spline samples generated per residue (curve smoothness).

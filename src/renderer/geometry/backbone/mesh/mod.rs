@@ -221,13 +221,12 @@ pub(crate) fn generate_mesh_colored(
 
 /// Drive the shared per-chain backbone loop for one polymer block.
 ///
-/// Owns the residue-counter bookkeeping in exactly one place -- the
+/// Owns the residue-counter bookkeeping in exactly one place: the
 /// running whole-assembly `global_residue_idx` (threaded across calls,
 /// returned for the next block) and a call-local 0-based
 /// `residue_offset` into this block's color/guide slices. Both advance
 /// in lockstep, *including across the `< 2`-residue skip*, so the
-/// color-slice desync class (T1-NA-C) cannot be reintroduced by a
-/// hand-rolled counter inside a per-type body.
+/// color-slice desync class cannot be reintroduced.
 ///
 /// `n_residues_of` reports a chain's control-point count. `chain_mesh`
 /// builds the type-specific mesh and its bounding sphere from the chain,
@@ -325,12 +324,10 @@ fn bounding_sphere(positions: &[Vec3], slack: f32) -> (Vec3, f32) {
 mod tests {
     use super::*;
 
-    /// Pins the T4-NA-B unification's load-bearing invariant: the single
-    /// `process_chains` driver advances `global_residue_idx` (threaded
-    /// across blocks) and the call-local 0-based `residue_offset` in
-    /// lockstep, including across the `< 2`-residue skip. This is the
-    /// exact desync class (T1-NA-C) the old hand-rolled per-type
-    /// counters were prone to. `C = usize` stands in for a chain's
+    /// Pins the load-bearing invariant: the single `process_chains`
+    /// driver advances `global_residue_idx` (threaded across blocks) and
+    /// the call-local 0-based `residue_offset` in lockstep, including
+    /// across the `< 2`-residue skip. `C = usize` stands in for a chain's
     /// residue count so the bookkeeping is tested independent of the
     /// real protein/NA chain types.
     #[test]

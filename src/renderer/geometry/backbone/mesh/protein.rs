@@ -91,7 +91,7 @@ pub(super) fn generate_protein_chain_mesh(
     }
 }
 
-// ==================== NORMAL BLENDING (protein only) ====================
+// NORMAL BLENDING (protein only)
 
 fn compute_final_frames(
     rmf_frames: &[SplinePoint],

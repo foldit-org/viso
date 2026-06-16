@@ -10,7 +10,7 @@ use super::spline::SplinePoint;
 use super::BackboneVertex;
 use crate::options::GeometryOptions;
 
-// ==================== CROSS-SECTION PROFILE ====================
+// CROSS-SECTION PROFILE
 
 /// Interpolated per-spline-point geometry parameters.
 #[derive(Clone, Copy)]
@@ -113,7 +113,7 @@ pub(crate) fn resolve_na_profile(
     }
 }
 
-// ==================== PROFILE INTERPOLATION ====================
+// PROFILE INTERPOLATION
 
 /// Interpolate per-residue profiles to spline resolution with smooth
 /// transitions at SS boundaries.
@@ -144,7 +144,7 @@ pub(crate) fn interpolate_profiles(
         .collect()
 }
 
-// ==================== CROSS-SECTION EXTRUSION ====================
+// CROSS-SECTION EXTRUSION
 
 /// Blended rectangular<->elliptical local cross-section coordinates for
 /// vertex `k` of a `cross_section_verts`-gon ring.

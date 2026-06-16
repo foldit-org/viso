@@ -49,7 +49,7 @@ impl Default for EntitySurface {
     }
 }
 
-// ── EntityAnnotations: surface mutators ──
+// EntityAnnotations: surface mutators
 
 impl EntityAnnotations {
     /// Replace (or insert) the entity's surface and log it.

@@ -2,7 +2,6 @@
 
 pub(crate) mod animator;
 pub(crate) mod runner;
-/// Structural-delta animation: derive + play a per-publish sequence.
 pub(crate) mod sequence;
 pub(crate) mod state;
 pub(crate) mod transition;

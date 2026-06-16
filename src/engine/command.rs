@@ -1,15 +1,18 @@
-//! Structural reference types for atom-anchored constraints (bands +
-//! pull).
+//! Structural reference types for atom-anchored render annotations (bands,
+//! pulls, clashes, exposed hydrophobics).
 //!
-//! Bands and pulls anchor to atoms by structural reference
-//! ([`crate::engine::command::AtomRef`]) rather than world-space
-//! positions. The engine resolves the positions every frame so the
-//! renderable geometry tracks animated atoms.
+//! These types name atoms by structural reference ([`AtomRef`] for a flat
+//! residue index, [`ClashEndpoint`] for an entity-local one) rather than
+//! by world-space position. The engine re-resolves those references to
+//! positions every frame from Scene data, so the geometry auto-tracks
+//! animated atoms. viso owns the flat residue ordering, so the host cannot
+//! precompute these positions (the same principle as
+//! [`VisoEngine::set_selection`](crate::VisoEngine::set_selection)).
 
 use glam::Vec3;
 use molex::entity::molecule::id::EntityId;
 
-// ── Constraint payload types ────────────────────────────────────────────
+// Constraint payload types
 
 /// Type of constraint band for color coding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -43,17 +46,14 @@ pub enum BandTarget {
     Position(Vec3),
 }
 
-/// Information about a constraint band to be rendered.
-///
-/// Uses structural references ([`AtomRef`]) instead of world-space
-/// positions. The engine resolves atom positions each frame from Scene
-/// data, so bands auto-track animated atoms.
+/// A constraint band to be rendered, anchored by [`AtomRef`] (see the
+/// module docs for the per-frame resolution contract).
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct BandInfo {
-    /// First endpoint — always an atom.
+    /// First endpoint; always an atom.
     pub anchor_a: AtomRef,
-    /// Second endpoint — atom or fixed position.
+    /// Second endpoint; atom or fixed position.
     pub anchor_b: BandTarget,
     /// Band strength (affects radius and color intensity, default 1.0).
     pub strength: f32,
@@ -74,12 +74,9 @@ pub struct BandInfo {
 
 /// One clashing atom, referenced per-entity.
 ///
-/// Unlike [`AtomRef`] (which uses a flat residue index), a clash endpoint
-/// names its owning entity and an entity-local residue. The flat ordering
-/// is authoritative only inside viso, so the host cannot compute it; viso
-/// resolves these per-entity refs directly against Scene data (the same
-/// principle as
-/// [`VisoEngine::set_selection`](crate::VisoEngine::set_selection)).
+/// Unlike [`AtomRef`] (a flat residue index), a clash endpoint names its
+/// owning entity and an entity-local residue (see the module docs for the
+/// per-frame resolution contract).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClashEndpoint {
     /// Owning entity.
@@ -90,12 +87,9 @@ pub struct ClashEndpoint {
     pub atom_name: String,
 }
 
-/// Information about a steric clash to be rendered as an electric arc.
-///
-/// Both endpoints are always atoms (clashes are atom-atom). Uses per-entity
-/// structural references ([`ClashEndpoint`]) instead of world-space
-/// positions, so the engine resolves atom positions each frame from Scene
-/// data and clash arcs auto-track animated atoms (mirrors [`BandInfo`]).
+/// A steric clash to be rendered as an electric arc between two atoms,
+/// each a [`ClashEndpoint`] (see the module docs for the per-frame
+/// resolution contract).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClashInfo {
     /// First clashing atom.
@@ -108,12 +102,8 @@ pub struct ClashInfo {
 
 /// A flagged exposed-hydrophobic residue, referenced per-entity.
 ///
-/// Names its owning entity and an entity-local residue (same per-entity
-/// principle as [`ClashEndpoint`] /
-/// [`VisoEngine::set_selection`](crate::VisoEngine::set_selection)); viso
-/// owns the flat ordering, so the host cannot compute it. The engine
-/// resolves the residue to a world-space sidechain anchor every frame so
-/// the bead marker tracks the residue live.
+/// Named like a [`ClashEndpoint`]; the engine resolves it to a world-space
+/// sidechain anchor each frame (see the module docs for the contract).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExposedHydrophobicInfo {
     /// Owning entity.
@@ -122,12 +112,9 @@ pub struct ExposedHydrophobicInfo {
     pub residue: u32,
 }
 
-/// Information about the active pull constraint.
-///
-/// Uses a structural reference ([`AtomRef`]) for the pulled atom and a
-/// screen-space target. The engine resolves atom position from Scene data
-/// and unprojecs `screen_target` at atom depth each frame, so the pull
-/// auto-tracks the animated atom.
+/// The active pull constraint: an [`AtomRef`] for the pulled atom plus a
+/// screen-space target unprojected at atom depth each frame (see the
+/// module docs for the per-frame resolution contract).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PullInfo {
     /// The atom being pulled.
@@ -136,7 +123,7 @@ pub struct PullInfo {
     pub screen_target: (f32, f32),
 }
 
-// ── Resolved types (internal, world-space) ──────────────────────────────
+// Resolved types (internal, world-space)
 
 /// Resolved band with world-space positions, ready for the renderer.
 #[derive(Debug, Clone, PartialEq)]

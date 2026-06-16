@@ -23,9 +23,7 @@ use crate::options::{
     ChainLod, ColorOptions, DisplayOptions, DrawingMode, GeometryOptions,
 };
 
-// ---------------------------------------------------------------------------
 // Platform-abstracted background thread spawn
-// ---------------------------------------------------------------------------
 
 /// Handle to a background worker. On native this is a joinable OS thread;
 /// on WASM it is a no-op because the worker runs on a rayon pool thread
@@ -67,9 +65,7 @@ fn join_background(handle: &mut WorkerHandle) {
     let _ = handle;
 }
 
-// ---------------------------------------------------------------------------
 // SceneProcessor
-// ---------------------------------------------------------------------------
 
 /// Background thread that generates CPU-side geometry from scene data.
 pub(crate) struct SceneProcessor {

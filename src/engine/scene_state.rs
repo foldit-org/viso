@@ -18,9 +18,7 @@ use crate::renderer::geometry::backbone::SheetOffset;
 use crate::renderer::geometry::bond::StructuralBond;
 use crate::renderer::geometry::sheet_adjust::sheet_offset_at;
 
-// ---------------------------------------------------------------------------
 // SceneRenderState
-// ---------------------------------------------------------------------------
 
 /// Cross-entity rendering data derived from [`Assembly`].
 ///
@@ -71,9 +69,7 @@ impl SceneRenderState {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /// Build a hydrogen-bond [`StructuralBond`] capsule between two
 /// already-resolved world-space positions, using the hydrogen-bond

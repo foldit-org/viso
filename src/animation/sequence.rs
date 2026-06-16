@@ -110,9 +110,7 @@ pub(crate) enum AnimationStep {
 /// An ordered animation produced by [`build_animation`].
 pub(crate) type Animation = Vec<AnimationStep>;
 
-// ---------------------------------------------------------------------------
 // Builder
-// ---------------------------------------------------------------------------
 
 /// Pure builder: derive the animation carrying `current` (A) to `new` (B),
 /// or `None` when the change should snap (a residue insert/delete, or
@@ -250,9 +248,7 @@ pub(crate) fn build_animation(
     Some(steps)
 }
 
-// ---------------------------------------------------------------------------
 // Player
-// ---------------------------------------------------------------------------
 
 /// What the engine must do after [`AnimationPlayer::advance`].
 pub(crate) enum Advance {
@@ -418,9 +414,7 @@ fn plan_seed(scene: &Scene, b: &Assembly) -> Vec<(EntityId, Vec<u32>)> {
         .collect()
 }
 
-// ---------------------------------------------------------------------------
 // Geometry helpers (animation policy; the buffer math)
-// ---------------------------------------------------------------------------
 
 /// Entity-local atom index of a residue's collapse stub: CB (canonical
 /// offset 4) when present, else CA (offset 1) for glycine's 4-atom residue.

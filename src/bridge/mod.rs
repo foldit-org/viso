@@ -9,7 +9,7 @@ use crate::VisoEngine;
 
 pub(crate) mod dispatch;
 
-// ── Panel layout model ──────────────────────────────────────────────────
+// Panel layout model
 
 /// Panel axis: right sidebar or bottom bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,7 +60,7 @@ pub(crate) const MAX_PANEL_SIZE: u32 = 700;
 #[cfg(target_arch = "wasm32")]
 pub const COLLAPSED_SIZE: u32 = 32;
 
-// ── UiAction ─────────────────────────────────────────────────────────────
+// UiAction
 
 /// Actions sent from the viso-ui WASM app to the host engine.
 #[derive(Debug)]
@@ -162,7 +162,7 @@ pub enum UiAction {
     },
 }
 
-// ── IPC parsing ──────────────────────────────────────────────────────────
+// IPC parsing
 
 /// Parse an IPC message from viso-ui into a [`UiAction`].
 pub(crate) fn parse_action(msg: &serde_json::Value) -> Option<UiAction> {
@@ -249,7 +249,7 @@ pub(crate) fn parse_action(msg: &serde_json::Value) -> Option<UiAction> {
     }
 }
 
-// ── JS escaping ──────────────────────────────────────────────────────────
+// JS escaping
 
 /// Escape a string for safe embedding in a JavaScript single-quoted
 /// literal.
@@ -257,7 +257,7 @@ pub(crate) fn escape_for_js(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
-// ── Entity summaries ─────────────────────────────────────────────────────
+// Entity summaries
 
 /// Build a JSON-serializable summary of all entities for the viso-ui
 /// panel.
@@ -380,7 +380,7 @@ fn effective_surface_color(engine: &VisoEngine, raw: u32) -> serde_json::Value {
     serde_json::json!(null)
 }
 
-// ── Density summaries ────────────────────────────────────────────────────
+// Density summaries
 
 /// Build a JSON-serializable summary of all density maps for the viso-ui
 /// panel.
@@ -402,7 +402,7 @@ pub(crate) fn density_summaries(engine: &VisoEngine) -> Vec<serde_json::Value> {
         .collect()
 }
 
-// ── File parsing ─────────────────────────────────────────────────────────
+// File parsing
 
 /// Result of parsing a file — either a structure or a density map.
 #[allow(dead_code)]
@@ -481,7 +481,7 @@ pub fn parse_structure_bytes(
     }
 }
 
-// ── Bridge JavaScript ────────────────────────────────────────────────────
+// Bridge JavaScript
 
 /// JavaScript bridge injected into viso-ui that defines the
 /// `window.__viso_push_*` functions and dispatches `CustomEvent`s.

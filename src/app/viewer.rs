@@ -26,7 +26,7 @@ use crate::input::{KeyBindings, MouseButton};
 use crate::options::VisoOptions;
 use crate::VisoEngine;
 
-// ── Builder ──────────────────────────────────────────────────────────────
+// Builder
 
 /// Fluent builder for [`Viewer`].
 pub struct ViewerBuilder {
@@ -78,7 +78,7 @@ impl ViewerBuilder {
     }
 }
 
-// ── Viewer ───────────────────────────────────────────────────────────────
+// Viewer
 
 /// A standalone window that displays a protein structure.
 ///
@@ -163,7 +163,7 @@ impl Viewer {
     }
 }
 
-// ── Winit shell ──────────────────────────────────────────────────────────
+// Winit shell
 
 /// Winit [`ApplicationHandler`] that owns the [`VisoApp`] + engine
 /// pair, the window, and per-frame input routing.
@@ -284,7 +284,7 @@ impl ViewerShell {
         w.request_redraw();
     }
 
-    // ── Input event handlers ────────────────────────────────────────
+    // Input event handlers
 
     fn handle_mouse_input(
         &mut self,

@@ -2,7 +2,7 @@ use molex::MoleculeType;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-// ── Structural bond options ──────────────────────────────────────────────
+// Structural bond options
 
 /// Visual style for structural bond rendering (H-bonds, disulfides).
 #[derive(
@@ -369,7 +369,7 @@ impl PresentMode {
 /// (via `DisplayOverrides::overlay`). `None` at either scope falls through
 /// to the next layer (entity → global → built-in defaults).
 pub struct DisplayOptions {
-    // --- Ambient visibility (type-level toggles, not per-entity) ---
+    // Ambient visibility (type-level toggles, not per-entity)
     /// Whether to render water molecules.
     pub show_waters: bool,
     /// Whether to render ion atoms.
@@ -381,21 +381,21 @@ pub struct DisplayOptions {
     /// Show exposed-hydrophobic "grease bead" markers.
     pub show_exposed_hydrophobics: bool,
 
-    // --- Rendering (not per-entity) ---
+    // Rendering (not per-entity)
     /// Surface presentation mode (VSync, immediate, mailbox).
     pub present_mode: PresentMode,
 
-    // --- Structural bonds ---
+    // Structural bonds
     /// Structural bond visualization settings (H-bonds, disulfides).
     pub bonds: BondOptions,
 
-    // --- Legacy ---
+    // Legacy
     /// Backbone coloring strategy (legacy field — prefer
     /// `overrides.color_scheme`).
     #[schemars(skip)]
     pub backbone_color_mode: BackboneColorMode,
 
-    // --- Per-entity overridable fields (flattened for TOML compat) ---
+    // Per-entity overridable fields (flattened for TOML compat)
     /// User's global display preferences, expressed as a bag of
     /// overrides. `None` fields fall through to built-in defaults.
     #[serde(flatten)]

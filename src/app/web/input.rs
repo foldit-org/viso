@@ -179,9 +179,7 @@ pub(super) fn attach_input_listeners(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Canvas resize handling
-// ---------------------------------------------------------------------------
 
 /// Watch the canvas element for size changes and call `engine.resize()`.
 pub(super) fn attach_resize_observer(

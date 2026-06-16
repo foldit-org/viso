@@ -18,9 +18,8 @@
 //!   (mesh/color/surface/LOD/drawing-mode-resolve)
 //!
 //! The dispatcher fires each `RenderInvalidation` flag at most once per
-//! call — dedup is a structural property of the type, not a runtime
-//! discipline. Fixes the historical triple-sync bug (same invalidation
-//! reached from three different `OptionsChange` bools at once).
+//! call; dedup is a structural property of the type, not a runtime
+//! discipline.
 
 use std::collections::HashMap;
 #[cfg(not(target_arch = "wasm32"))]
@@ -183,7 +182,7 @@ impl VisoEngine {
         globals: GlobalsChange,
         inv: RenderInvalidation,
     ) {
-        // --- Global-only concerns ---
+        // Global-only concerns
         if globals.waters {
             self.apply_type_visibility(
                 MoleculeType::Water,
@@ -220,7 +219,7 @@ impl VisoEngine {
                 .set_present_mode(self.options.display.present_mode.to_wgpu());
         }
 
-        // --- Override-driven invalidations. Each flag fires at most once. ---
+        // Override-driven invalidations. Each flag fires at most once.
         if inv.contains(RenderInvalidation::DRAWING_MODE_RESOLVE) {
             self.reresolve_drawing_modes();
         }

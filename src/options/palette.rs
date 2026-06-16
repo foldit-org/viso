@@ -323,7 +323,7 @@ impl Palette {
     }
 }
 
-// ── Helpers ──
+// Helpers
 
 /// Evenly space an array of colors from `t = 0` to `t = 1`.
 fn evenly_spaced(colors: &[[f32; 3]]) -> Vec<(f32, [f32; 3])> {

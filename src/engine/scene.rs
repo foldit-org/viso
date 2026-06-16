@@ -33,7 +33,7 @@ use crate::options::DrawingMode;
 
 /// Assembly consumption + derived per-entity state.
 pub(crate) struct Scene {
-    // ── Ingest ────────────────────────────────────────────────────
+    // Ingest
     /// Latest assembly snapshot pushed by the host via
     /// [`crate::VisoEngine::set_assembly`] but not yet applied. Drained
     /// by `poll_assembly` / `poll_assembly_force` on the next sync tick.
@@ -48,7 +48,7 @@ pub(crate) struct Scene {
     /// triggers a sync.
     pub(crate) last_seen_generation: u64,
 
-    // ── Derived ───────────────────────────────────────────────────
+    // Derived
     /// Cross-entity rendering data (disulfide + H-bond endpoints +
     /// per-sync resolved structural bonds). Rederived on every sync;
     /// lives on the main thread only.

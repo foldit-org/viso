@@ -26,9 +26,7 @@ use crate::renderer::geometry::backbone::curve::project_backbone_atoms;
 use crate::renderer::geometry::backbone::SheetOffset;
 use crate::renderer::geometry::nucleic_acid::NA_DEFAULT_COLOR;
 
-// ---------------------------------------------------------------------------
 // EntityView
-// ---------------------------------------------------------------------------
 
 /// Per-entity state held by [`VisoEngine`](super::VisoEngine).
 ///
@@ -62,9 +60,7 @@ pub(crate) struct EntityView {
     pub(crate) mesh_version: u64,
 }
 
-// ---------------------------------------------------------------------------
 // RibbonBackbone -- per-sync cache for Cartoon-mode H-bond anchoring
-// ---------------------------------------------------------------------------
 
 /// Per-residue spline-projected backbone positions for Cartoon-mode
 /// H-bond anchoring.
@@ -123,9 +119,7 @@ impl RibbonBackbone {
     }
 }
 
-// ---------------------------------------------------------------------------
 // derive_topology -- engine-side derivation factory
-// ---------------------------------------------------------------------------
 
 /// Rederive the render-ready [`EntityTopology`] view of a single entity.
 ///
@@ -222,9 +216,7 @@ pub(crate) fn derive_topology(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Builder helpers -- private derivation used only by derive_topology
-// ---------------------------------------------------------------------------
 
 fn atom_elements(atoms: &[molex::Atom]) -> Vec<Element> {
     atoms.iter().map(|a| a.element).collect()

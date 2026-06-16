@@ -3,7 +3,6 @@
 //! Contains molecular renderers (tubes, ribbons, sidechains, ball-and-stick,
 //! nucleic acids) and post-processing effects (SSAO, bloom, FXAA).
 
-/// Bind groups shared across all molecular draw calls.
 pub(crate) mod draw_context;
 /// Render-ready per-entity contract -- [`EntityTopology`] plus the
 /// [`SidechainLayout`] / [`NucleotideRingLayout`] consumed across the
@@ -13,21 +12,14 @@ pub(crate) mod draw_context;
 /// [`SidechainLayout`]: entity_topology::SidechainLayout
 /// [`NucleotideRingLayout`]: entity_topology::NucleotideRingLayout
 pub(crate) mod entity_topology;
-/// All GPU infrastructure grouped together (device, renderers, picking, etc.).
 pub(crate) mod gpu_pipeline;
 pub(crate) use gpu_pipeline::GpuPipeline;
-/// Molecular geometry assemblers (backbone, sidechain, ball-and-stick, etc.).
 pub(crate) mod geometry;
-/// Reusable impostor-pass primitives and instance types.
 pub(crate) mod impostor;
-/// Shared indexed-mesh draw-pass abstraction.
 pub(crate) mod mesh;
-/// GPU-based object picking and selection management.
 pub(crate) mod picking;
-/// Background mesh generation pipeline (scene -> GPU-ready buffers).
 pub(crate) mod pipeline;
 pub(crate) mod pipeline_util;
-/// Post-processing effects (SSAO, bloom, FXAA).
 pub(crate) mod postprocess;
 
 use self::draw_context::DrawBindGroups;
@@ -53,9 +45,7 @@ pub(crate) struct PipelineLayouts {
     pub(crate) color: wgpu::BindGroupLayout,
 }
 
-// ---------------------------------------------------------------------------
 // GeometryPassInput
-// ---------------------------------------------------------------------------
 
 /// Input for the main geometry render pass.
 pub(crate) struct GeometryPassInput<'a> {
@@ -67,9 +57,7 @@ pub(crate) struct GeometryPassInput<'a> {
     pub(crate) depth: &'a wgpu::TextureView,
 }
 
-// ---------------------------------------------------------------------------
 // Renderers
-// ---------------------------------------------------------------------------
 
 /// All geometry renderers grouped together.
 pub(crate) struct Renderers {

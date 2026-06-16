@@ -446,7 +446,7 @@ fn cubemap_face_direction(face: u32, u: f32, v: f32) -> [f32; 3] {
 /// Evaluate studio-style irradiance for a given world-space direction.
 ///
 /// Smooth vertical gradient: warm white from above, cool blue from below.
-/// Values roughly match the energy of the old flat ambient (0.12).
+/// Tuned for a total irradiance energy of roughly 0.12.
 fn evaluate_irradiance(dir: [f32; 3]) -> [f32; 3] {
     let y = dir[1];
     let t = y * 0.5 + 0.5;

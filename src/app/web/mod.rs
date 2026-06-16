@@ -31,9 +31,7 @@ impl UiHost for WebHost {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Shared handles
-// ---------------------------------------------------------------------------
 
 /// Thread-local engine state shared between the rAF loop, input
 /// listeners, and the IPC bridge.
@@ -49,9 +47,7 @@ type AppHandle = Rc<RefCell<VisoApp>>;
 /// and flushes the result back to the engine's flat residue space.
 type SelectionHandle = Rc<RefCell<SelectionStore>>;
 
-// ---------------------------------------------------------------------------
 // Initialization
-// ---------------------------------------------------------------------------
 
 /// Initialize the WASM environment: console logging and panic hook.
 ///
@@ -62,9 +58,7 @@ pub fn init() {
     let _ = console_log::init_with_level(log::Level::Info);
 }
 
-// ---------------------------------------------------------------------------
 // Engine start
-// ---------------------------------------------------------------------------
 
 /// Create and start a `VisoEngine` rendering to the given canvas.
 ///
@@ -190,9 +184,7 @@ pub fn load_structure(
     ))
 }
 
-// ---------------------------------------------------------------------------
 // IPC bridge (viso-ui ↔ engine)
-// ---------------------------------------------------------------------------
 
 /// Install the IPC bridge between the parent page (engine) and the
 /// viso-ui iframe.
@@ -550,9 +542,7 @@ async fn fetch_and_load(
     }
 }
 
-// ---------------------------------------------------------------------------
 // State push (engine → viso-ui via CustomEvents)
-// ---------------------------------------------------------------------------
 
 /// Push the options JSON schema + current values to viso-ui.
 fn push_schema_and_options(engine: &VisoEngine) {
@@ -646,9 +636,7 @@ fn push_to_ui(key: &str, json: &str) {
     }
 }
 
-// ---------------------------------------------------------------------------
 // requestAnimationFrame render loop
-// ---------------------------------------------------------------------------
 
 fn request_animation_frame_loop(
     engine: EngineHandle,

@@ -15,9 +15,7 @@ use crate::renderer::geometry::backbone::{ChainRange, SheetOffset};
 use crate::renderer::geometry::isosurface::IsosurfaceVertex;
 use crate::renderer::picking::PickMap;
 
-// ---------------------------------------------------------------------------
 // Shared sub-structs
-// ---------------------------------------------------------------------------
 
 /// Backbone mesh data ready for GPU upload (byte buffers).
 #[derive(Clone)]
@@ -64,9 +62,7 @@ pub(crate) struct NucleicAcidInstances {
     pub(crate) ring_count: u32,
 }
 
-// ---------------------------------------------------------------------------
 // CachedEntityMesh sub-struct
-// ---------------------------------------------------------------------------
 
 /// Cached backbone data for a single entity with typed indices for offsetting.
 pub(super) struct CachedBackbone {
@@ -78,9 +74,7 @@ pub(super) struct CachedBackbone {
     pub chain_ranges: Vec<ChainRange>,
 }
 
-// ---------------------------------------------------------------------------
 // Per-entity input carried on a SceneRequest::FullRebuild
-// ---------------------------------------------------------------------------
 
 /// Per-entity snapshot used by the background mesh worker.
 ///
@@ -398,9 +392,7 @@ pub(crate) struct PreparedRebuild {
     pub(crate) entity_residue_offsets: Vec<(EntityId, u32)>,
 }
 
-// ---------------------------------------------------------------------------
 // Per-entity cached mesh
-// ---------------------------------------------------------------------------
 
 /// Cached mesh data for a single entity. Stored as byte buffers ready for
 /// concatenation, plus typed intermediates needed for index offsetting.

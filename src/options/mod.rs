@@ -18,7 +18,6 @@ pub mod overrides;
 /// Color palette system.
 pub mod palette;
 mod post_processing;
-/// Score-to-color gradient mapping.
 pub(crate) mod score_color;
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -3,8 +3,8 @@
 //! Renders atoms as ray-cast sphere impostors and bonds as capsule impostors.
 //! Consumes entity-level
 //! [`EntityTopology`](crate::renderer::entity_topology::EntityTopology)
-//! + positions slice; the render path never sees `&MoleculeEntity` or
-//! `&Assembly`.
+//! plus a positions slice; the render path never sees `&MoleculeEntity`
+//! or `&Assembly`.
 
 mod instances;
 

@@ -18,9 +18,7 @@ use crate::renderer::geometry::{
     SidechainRenderer, SidechainView,
 };
 
-// ---------------------------------------------------------------------------
 // Sidechain capsule instance helper
-// ---------------------------------------------------------------------------
 
 /// Resolve sidechain atom positions and backbone-bond anchor positions
 /// from a layout against an entity's interpolated `positions` slice.
@@ -110,9 +108,7 @@ fn generate_sidechain_bytes(
     (bytemuck::cast_slice(&insts).to_vec(), count)
 }
 
-// ---------------------------------------------------------------------------
 // Ball-and-stick / nucleic acid helper
-// ---------------------------------------------------------------------------
 
 /// Generate ball-and-stick + nucleic acid instance bytes for a single
 /// entity.
@@ -162,9 +158,7 @@ fn generate_non_backbone_bytes(
     )
 }
 
-// ---------------------------------------------------------------------------
 // Entity mesh generation
-// ---------------------------------------------------------------------------
 
 /// Generate mesh for a single entity.
 ///

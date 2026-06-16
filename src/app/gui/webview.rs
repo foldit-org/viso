@@ -284,7 +284,7 @@ fn safe_push(webview: &WebView, key: &str, escaped_value: &str) {
     let _ = webview.evaluate_script(&js);
 }
 
-// ── Internals ────────────────────────────────────────────────────────────
+// Internals
 
 /// Native-specific addendum to the shared bridge JavaScript.
 ///
