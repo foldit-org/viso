@@ -43,7 +43,9 @@ use crate::gpu::{RenderContext, ShaderComposer};
 /// Bind group layouts shared by all molecular geometry pipelines.
 ///
 /// Every molecular renderer (backbone, sidechain, ball-and-stick, band, pull,
-/// nucleic acid) binds the same camera, lighting, and selection groups.
+/// nucleic acid) binds the same camera, lighting, and selection groups. The
+/// `selection` group carries both per-residue overlay buffers (selection at
+/// binding 0, non-designable at binding 1).
 pub(crate) struct PipelineLayouts {
     pub(crate) camera: wgpu::BindGroupLayout,
     pub(crate) lighting: wgpu::BindGroupLayout,

@@ -124,6 +124,10 @@ const MODULE_PATHS: &[(&str, &str)] = &[
         include_str!("../shaders/modules/selection.wgsl"),
     ),
     (
+        "modules/designability.wgsl",
+        include_str!("../shaders/modules/designability.wgsl"),
+    ),
+    (
         "modules/highlight.wgsl",
         include_str!("../shaders/modules/highlight.wgsl"),
     ),

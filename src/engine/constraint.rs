@@ -647,6 +647,31 @@ impl VisoEngine {
         self.constraints.exposed_hydro_specs = beads;
         self.resolve_and_render_constraints();
     }
+
+    /// Replace the per-residue non-designable set. `non_designable` is the
+    /// per-entity authoritative set of residues that may NOT be designed
+    /// (mutated) in the current puzzle; the geometry shaders desaturate
+    /// these residues toward white, composing on top of score color and the
+    /// selection highlight. An empty map clears every whiteout (the
+    /// non-design-puzzle case).
+    ///
+    /// Like [`Self::set_selection`], viso stores the per-entity set as the
+    /// source of truth and re-derives the flat GPU bitset from its own
+    /// always-current per-entity residue offsets, both here and on every
+    /// mesh rebuild, so the overlay can never go stale relative to a
+    /// shifting residue space.
+    pub fn set_non_designable(
+        &mut self,
+        non_designable: &std::collections::BTreeMap<
+            EntityId,
+            std::collections::BTreeSet<u32>,
+        >,
+    ) {
+        self.gpu.pick.set_non_designable(non_designable.clone());
+        self.gpu
+            .pick
+            .update_non_designable_buffer(&self.gpu.context.queue);
+    }
 }
 
 #[cfg(test)]

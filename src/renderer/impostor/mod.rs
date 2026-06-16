@@ -32,7 +32,8 @@ pub(crate) struct ShaderDef {
 /// All impostor shaders use the same bind group layout convention:
 /// - group(0): camera uniform
 /// - group(1): lighting uniform + textures
-/// - group(2): selection storage
+/// - group(2): per-residue overlay bitsets (binding 0 = selection,
+///   binding 1 = non-designable)
 /// - group(3): storage buffer (instances)
 pub(crate) struct ImpostorPass<T: Pod + Zeroable> {
     pipeline: wgpu::RenderPipeline,

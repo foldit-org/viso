@@ -2,11 +2,16 @@
 #import viso::lighting::LightingUniform
 #import viso::selection::check_selection
 #import viso::highlight::apply_highlight
+#import viso::designability::{check_non_designable, apply_designability}
 #import viso::shade::{shade_geometry, ShadingResult}
 #import viso::constants::MAX_IBL_MIP
 
 fn is_selected(residue_idx: u32) -> bool {
     return check_selection(residue_idx, arrayLength(&selection), selection[residue_idx / 32u]);
+}
+
+fn is_non_designable(residue_idx: u32) -> bool {
+    return check_non_designable(residue_idx, arrayLength(&non_designable), non_designable[residue_idx / 32u]);
 }
 
 struct VertexInput {
@@ -32,6 +37,7 @@ struct VertexOutput {
 @group(1) @binding(3) var prefiltered_map: texture_cube<f32>;
 @group(1) @binding(4) var brdf_lut: texture_2d<f32>;
 @group(2) @binding(0) var<storage, read> selection: array<u32>;
+@group(2) @binding(1) var<storage, read> non_designable: array<u32>;
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
@@ -65,7 +71,7 @@ fn fs_main(in: VertexOutput) -> FragOutput {
     // Highlight
     let hovered = camera.hovered_residue >= 0 && u32(camera.hovered_residue) == in.residue_idx;
     let highlighted = apply_highlight(in.vertex_color, hovered, is_selected(in.residue_idx));
-    var base_color = highlighted.xyz;
+    var base_color = apply_designability(highlighted.xyz, is_non_designable(in.residue_idx));
     let outline_factor = highlighted.w;
 
     // Pre-sample IBL textures (modules cannot reference bindings)

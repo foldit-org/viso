@@ -27,7 +27,11 @@ pub(crate) struct PickingSystem {
     pub(crate) picking: Picking,
     /// Picking bind group state (capsule, ball-and-stick).
     pub(crate) groups: PickingState,
-    /// Per-residue selection highlight buffer.
+    /// Per-residue overlay buffers (selection highlight + non-designable
+    /// bitset) sharing one group-2 bind group. Shaders desaturate locked
+    /// residues toward white from the non-designable bits; the flat GPU bit
+    /// index is the global residue index, re-derived from
+    /// `non_designable_per_entity` on every rebuild.
     pub(crate) selection: SelectionBuffer,
     /// Per-residue color buffer for shaders.
     pub(crate) residue_colors: ResidueColorBuffer,
@@ -45,6 +49,16 @@ pub(crate) struct PickingSystem {
     /// selection here (rather than a pre-flattened vector) makes staleness
     /// relative to a shifting residue space structurally impossible.
     pub(crate) selection_per_entity: BTreeMap<EntityId, BTreeSet<u32>>,
+    /// Per-entity non-designable residues: the source of truth for the
+    /// designability bitset, mirroring `selection_per_entity`. The flat GPU
+    /// bitset (`non_designable_flat`) is derived from this against the
+    /// current `entity_residue_offsets` on every push AND on every mesh
+    /// rebuild, so it can never go stale relative to a shifting residue
+    /// space. Empty = nothing locked (the common, non-design-puzzle case).
+    pub(crate) non_designable_per_entity: BTreeMap<EntityId, BTreeSet<u32>>,
+    /// Flat (global-residue-index) non-designable cache, re-derived from
+    /// `non_designable_per_entity`. Uploaded to the GPU bitset each frame.
+    pub(crate) non_designable_flat: Vec<i32>,
 }
 
 impl PickingSystem {
@@ -67,6 +81,8 @@ impl PickingSystem {
             hovered_target: PickTarget::None,
             entity_residue_offsets: BTreeMap::new(),
             selection_per_entity: BTreeMap::new(),
+            non_designable_per_entity: BTreeMap::new(),
+            non_designable_flat: Vec::new(),
         })
     }
 
@@ -126,6 +142,37 @@ impl PickingSystem {
             }
         }
         self.picking.selected_residues = flat;
+    }
+
+    /// Replace the per-entity non-designable set (the source of truth) and
+    /// re-derive the flat GPU bitset cache against the current offsets. The
+    /// derived cache is uploaded by the per-frame
+    /// [`Self::update_non_designable_buffer`] call.
+    pub(crate) fn set_non_designable(
+        &mut self,
+        non_designable: BTreeMap<EntityId, BTreeSet<u32>>,
+    ) {
+        self.non_designable_per_entity = non_designable;
+        self.rederive_non_designable();
+    }
+
+    /// Re-derive the flat `non_designable_flat` cache from the stored
+    /// per-entity non-designable set against the CURRENT
+    /// `entity_residue_offsets`. Called on every push AND on every mesh
+    /// rebuild (when the offsets table is overwritten), so the flat bitset
+    /// can never go stale relative to a shifting residue space. Mirrors
+    /// [`Self::rederive_selection`].
+    pub(crate) fn rederive_non_designable(&mut self) {
+        let mut flat: Vec<i32> = Vec::new();
+        for (eid, residues) in &self.non_designable_per_entity {
+            let Some(&base) = self.entity_residue_offsets.get(eid) else {
+                continue;
+            };
+            for r in residues {
+                flat.push((base + *r) as i32);
+            }
+        }
+        self.non_designable_flat = flat;
     }
 
     /// Walk backwards / forwards from `residue_idx` to find the
@@ -281,5 +328,13 @@ impl PickingSystem {
     pub(crate) fn update_selection_buffer(&self, queue: &wgpu::Queue) {
         self.selection
             .update(queue, &self.picking.selected_residues);
+    }
+
+    /// Upload the current non-designable state to the GPU non-designable
+    /// overlay buffer (binding 1 of the shared group-2 bind group). Mirrors
+    /// [`Self::update_selection_buffer`].
+    pub(crate) fn update_non_designable_buffer(&self, queue: &wgpu::Queue) {
+        self.selection
+            .update_non_designable(queue, &self.non_designable_flat);
     }
 }

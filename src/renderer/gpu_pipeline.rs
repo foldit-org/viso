@@ -198,6 +198,10 @@ impl GpuPipeline {
         // stays pinned to the selected residues across rebuilds (the
         // per-frame `update_selection_buffer` uploads the refreshed cache).
         self.pick.rederive_selection();
+        // The non-designable bitset is keyed by the same global residue index
+        // and shifts with the offsets table, so re-derive it on the same gate
+        // (the per-frame `update_non_designable_buffer` uploads the cache).
+        self.pick.rederive_non_designable();
         self.pick.groups.rebuild_all(
             &self.pick.picking,
             &self.context.device,
@@ -442,7 +446,9 @@ impl GpuPipeline {
         self.scene_processor.shutdown();
     }
 
-    /// Ensure the selection and residue-color buffers have enough capacity.
+    /// Ensure the per-residue overlay (selection + non-designable) and
+    /// residue-color buffers have enough capacity for `total_residues`
+    /// residues. The overlay buffer grows both bitsets together.
     pub(crate) fn ensure_residue_capacity(&mut self, total_residues: usize) {
         self.pick
             .selection
