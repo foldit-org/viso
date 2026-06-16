@@ -4,7 +4,7 @@
 //! ray-cast SDF "greasy bead" impostor: one camera-facing billboard quad
 //! per residue, anchored at the residue's sidechain, with the bead's body
 //! (a central sphere smooth-min'd with a few slowly-boiling satellites)
-//! drawn entirely in the [`Shader::Grease`](crate::gpu::Shader::Grease)
+//! drawn entirely in the [`Shader::Grease`]
 //! fragment shader. Unlike the flat-emissive clash card, the bead writes a
 //! real `frag_depth` and a real SDF-gradient normal and is lit (warm-yellow
 //! greasy PBR with an animated broken highlight), so it sits in the scene as
@@ -15,7 +15,7 @@
 //! bead specs are externally supplied per residue, resolved from per-entity
 //! structural refs to a world-space sidechain anchor every frame, then
 //! emitted as one
-//! [`GreaseBeadInstance`](crate::renderer::geometry::exposed_hydrophobic::GreaseBeadInstance)
+//! [`GreaseBeadInstance`]
 //! per residue. All animation lives in the shader, which reads `camera.time`
 //! directly, so the renderer just forwards the resolved anchor and a stable
 //! per-bead seed.

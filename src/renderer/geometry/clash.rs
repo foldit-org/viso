@@ -3,7 +3,7 @@
 //! Renders steric clashes between atom pairs as glowing deep-red electric
 //! bolts: one camera-facing billboard ribbon per clash spanning the two
 //! clashing atoms, with the whole jagged bolt drawn procedurally in the
-//! [`Shader::Lightning`](crate::gpu::Shader::Lightning) fragment shader. A
+//! [`Shader::Lightning`] fragment shader. A
 //! bright hot-red core blooms over a deep dark semitransparent red
 //! envelope; the centerline jag scrolls smoothly with `camera.time` while
 //! a fast brightness flicker supplies the electric energy. This reads as a
@@ -15,7 +15,7 @@
 //! clash specs are externally supplied per pair, resolved from per-entity
 //! structural [`ClashEndpoint`](crate::engine::command::ClashEndpoint)s to
 //! world-space every frame, then emitted as one
-//! [`LightningInstance`](crate::renderer::geometry::clash::LightningInstance)
+//! [`LightningInstance`]
 //! per clash. All animation lives in the shader,
 //! which reads `camera.time` directly, so the renderer just forwards the
 //! resolved endpoints, the severity, and a stable per-clash seed.

@@ -3,7 +3,7 @@
 //! The mouse-button intake on [`VisoEngine`](crate::VisoEngine) returns
 //! a `ClickEvent` on release when the multi-click classifier resolves
 //! the gesture into a click. Consumers map [`ClickPattern`] +
-//! [`PickTarget`](crate::PickTarget) onto their own selection policy.
+//! [`PickTarget`] onto their own selection policy.
 
 use molex::entity::molecule::id::EntityId;
 

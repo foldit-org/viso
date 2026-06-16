@@ -1,8 +1,8 @@
 //! Fit-to-molecule-data helpers.
 //!
-//! Given one or more [`MoleculeEntity`](molex::MoleculeEntity)s,
+//! Given one or more [`MoleculeEntity`]s,
 //! compute a bounding sphere (centroid + radius) and drive the
-//! [`CameraController`](crate::camera::controller::CameraController)
+//! [`CameraController`]
 //! at it. Lets engine-side code avoid hand-rolling geometry every
 //! time it wants to point the camera at something.
 
