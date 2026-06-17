@@ -6,9 +6,10 @@
 //! (hydrogen bonds, disulfides). The links are read straight off
 //! [`Assembly::connections`](molex::Assembly::connections) on sync; the
 //! actual world-space resolution into [`StructuralBond`] capsules runs in
-//! the constraint pass against the live positions and sheet offsets, so an
-//! animating ribbon or a flattened sheet-residue SG is tracked rather than
-//! frozen on the raw atom coordinate the sync saw.
+//! the constraint pass against the live positions, the mesh's emitted ribbon
+//! anchors, and the sheet offsets, so a capsule attaches to the drawn ribbon
+//! (or a flattened sheet-residue SG) rather than freezing on the raw atom
+//! coordinate the sync saw.
 
 use glam::Vec3;
 
@@ -125,15 +126,16 @@ pub(crate) fn disulfide_capsule(
 /// drawn geometry rather than to the raw atom coordinate.
 ///
 /// In Cartoon mode the structure is not drawn at raw atom positions: the
-/// backbone is projected onto the ribbon spline, and beta-strand sidechains
+/// backbone is drawn along the ribbon centerline, and beta-strand sidechains
 /// are shifted by a per-residue sheet-flattening offset. This resolver
-/// applies whichever transform the atom is subject to:
+/// applies whichever transform the atom is subject to, reading the mesh's
+/// emitted per-residue ribbon anchors for the backbone:
 ///
-/// - **Backbone** N → the ribbon's N control point; carbonyl O or C → the
-///   ribbon's C control point (rosetta names the backbone acceptor O, and the
-///   ribbon carries only N and C control points per residue, so the carbonyl
-///   region maps to C). CA sits on the spline already, so it stays raw. With no
-///   ribbon (too short to project) the backbone atom is raw.
+/// - **Backbone** N → the ribbon's emitted N anchor; CA → the ribbon's emitted
+///   CA centerline anchor; carbonyl O or C → the ribbon's emitted C anchor
+///   (rosetta names the backbone acceptor O, and the ribbon carries N, CA, and
+///   C anchors per residue, so the carbonyl region maps to C). With no stored
+///   anchors (non-protein, or before the first mesh) the backbone atom is raw.
 /// - **Sidechain** (anything else, including the disulfide SG) → `raw +
 ///   sheet_offset` when this residue is on a flattened strand, matching the
 ///   shift the mesh applied to the sidechain sticks; raw otherwise.
@@ -148,7 +150,7 @@ pub(crate) fn rendered_atom_position(
     raw: Vec3,
     drawing_mode: DrawingMode,
     is_protein: bool,
-    ribbon: Option<&RibbonBackbone>,
+    ribbon: Option<&RibbonBackbone<'_>>,
     sheet_offsets: &[SheetOffset],
     residue: u32,
     atom_name: &str,
@@ -161,8 +163,7 @@ pub(crate) fn rendered_atom_position(
         // Backbone carbonyl: the acceptor is named O upstream; the ribbon
         // anchors the carbonyl region at its C control point.
         "O" | "C" => ribbon.and_then(|r| r.c_at(residue)).unwrap_or(raw),
-        // CA is essentially on the spline; leave it raw.
-        "CA" => raw,
+        "CA" => ribbon.and_then(|r| r.ca_at(residue)).unwrap_or(raw),
         // Sidechain atom (incl. SG): re-anchor onto the flattened stick.
         _ => {
             raw + sheet_offset_at(sheet_offsets, residue).unwrap_or(Vec3::ZERO)

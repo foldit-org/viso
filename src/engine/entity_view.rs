@@ -7,9 +7,9 @@
 //!   contract from a `MoleculeEntity`. Defined here (not in the renderer
 //!   module) because derivation is an engine-side concern; the renderer only
 //!   defines the shape it wants.
-//! - [`RibbonBackbone`] is a per-sync cache of spline-projected backbone anchor
-//!   positions used by the bond resolver to attach H-bond capsules to the
-//!   rendered ribbon in Cartoon mode.
+//! - [`RibbonBackbone`] is a thin read-only view over the per-residue ribbon
+//!   anchors the cartoon mesh emitted, used by the bond resolver to attach
+//!   H-bond capsules to the rendered ribbon in Cartoon mode.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -22,8 +22,7 @@ use crate::options::DrawingMode;
 use crate::renderer::entity_topology::{
     EntityTopology, NucleotideRingLayout, SidechainLayout,
 };
-use crate::renderer::geometry::backbone::curve::project_backbone_atoms;
-use crate::renderer::geometry::backbone::SheetOffset;
+use crate::renderer::geometry::backbone::{RibbonAnchor, SheetOffset};
 use crate::renderer::geometry::nucleic_acid::NA_DEFAULT_COLOR;
 
 // EntityView
@@ -56,66 +55,60 @@ pub(crate) struct EntityView {
     /// sticks. Refreshed whenever the prepared mesh is applied; empty when
     /// no strand residues were flattened (or before the first mesh lands).
     pub(crate) sheet_offsets: Vec<SheetOffset>,
+    /// Per-residue ribbon anchors the cartoon mesh emitted, entity-local
+    /// residue index, ascending. Sampled from the same drawn centerline the
+    /// mesh extrudes, so structural-bond endpoint resolution attaches H-bond
+    /// and disulfide capsules to the rendered ribbon rather than recomputing
+    /// a separate curve. Refreshed whenever a prepared mesh is applied
+    /// (full rebuild or animation frame); empty for non-protein entities or
+    /// before the first mesh lands.
+    pub(crate) ribbon_anchors: Vec<RibbonAnchor>,
     /// Bumped whenever this entity's geometry needs to be regenerated.
     pub(crate) mesh_version: u64,
 }
 
-// RibbonBackbone -- per-sync cache for Cartoon-mode H-bond anchoring
+// RibbonBackbone -- read-only view over the mesh's emitted ribbon anchors
 
-/// Per-residue spline-projected backbone positions for Cartoon-mode
-/// H-bond anchoring.
+/// Read-only view over the per-residue ribbon anchors the cartoon mesh
+/// emitted ([`EntityView::ribbon_anchors`]).
 ///
-/// The cartoon ribbon is a smooth spline through a protein's `[N, CA, C]`
-/// control points; the rendered curve doesn't pass exactly through the
-/// raw atoms. [`project_backbone_atoms`] derives where N and C would sit
-/// on the curve using standard peptide-bond fractions, producing the
-/// anchor positions an H-bond capsule should attach to so it visually
-/// connects to the ribbon rather than to atoms floating off it.
-pub(crate) struct RibbonBackbone {
-    /// Ribbon-projected N position per residue (donor anchoring).
-    pub(crate) per_residue_n: Vec<Vec3>,
-    /// Ribbon-projected C position per residue (acceptor anchoring).
-    pub(crate) per_residue_c: Vec<Vec3>,
+/// The cartoon ribbon's N and C anchors are sampled from the same
+/// SS-aware, sheet-flattened centerline the mesh extrudes, so an H-bond or
+/// disulfide capsule attached to these anchors lands on the drawn ribbon
+/// rather than on a raw atom floating off it. The mesh build owns the
+/// geometry; this view just indexes the stored slice by residue.
+pub(crate) struct RibbonBackbone<'a> {
+    anchors: &'a [RibbonAnchor],
 }
 
-impl RibbonBackbone {
-    /// Project per-residue N and C onto the rendered cartoon ribbon.
-    ///
-    /// Returns `None` for non-protein topologies and for inputs too
-    /// short to support a spline projection -- callers fall back to raw
-    /// atom positions in that case.
+impl<'a> RibbonBackbone<'a> {
+    /// View an entity's stored ribbon anchors. Returns `None` when the
+    /// entity has none (non-protein, or before the first mesh lands) so
+    /// callers fall back to raw atom positions.
     #[must_use]
-    pub(crate) fn project(
-        topology: &EntityTopology,
-        positions: &[Vec3],
-    ) -> Option<Self> {
-        if !topology.is_protein() {
+    pub(crate) fn from_anchors(anchors: &'a [RibbonAnchor]) -> Option<Self> {
+        if anchors.is_empty() {
             return None;
         }
-        let chains = topology.protein_backbone_chains(positions);
-        if chains.is_empty() {
-            return None;
-        }
-        let (per_residue_n, per_residue_c) = project_backbone_atoms(&chains);
-        if per_residue_n.is_empty() && per_residue_c.is_empty() {
-            return None;
-        }
-        Some(Self {
-            per_residue_n,
-            per_residue_c,
-        })
+        Some(Self { anchors })
     }
 
-    /// Residue-indexed ribbon-projected N position (donor anchor).
+    /// Residue-indexed ribbon N anchor (donor anchor).
     #[must_use]
     pub(crate) fn n_at(&self, residue: u32) -> Option<Vec3> {
-        self.per_residue_n.get(residue as usize).copied()
+        self.anchors.get(residue as usize).map(|a| a.n)
     }
 
-    /// Residue-indexed ribbon-projected C position (acceptor anchor).
+    /// Residue-indexed ribbon CA anchor (drawn centerline point).
+    #[must_use]
+    pub(crate) fn ca_at(&self, residue: u32) -> Option<Vec3> {
+        self.anchors.get(residue as usize).map(|a| a.ca)
+    }
+
+    /// Residue-indexed ribbon C anchor (acceptor anchor).
     #[must_use]
     pub(crate) fn c_at(&self, residue: u32) -> Option<Vec3> {
-        self.per_residue_c.get(residue as usize).copied()
+        self.anchors.get(residue as usize).map(|a| a.c)
     }
 }
 

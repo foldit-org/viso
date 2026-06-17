@@ -285,6 +285,7 @@ pub(super) fn generate_entity_mesh(
             ribbon_inds: backbone_mesh.ribbon_indices,
             vert_count: backbone_mesh.vertices.len() as u32,
             sheet_offsets: backbone_mesh.sheet_offsets,
+            ribbon_anchors: backbone_mesh.ribbon_anchors,
             chain_ranges: backbone_mesh.chain_ranges,
         },
         sidechain_instances,

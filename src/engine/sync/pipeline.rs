@@ -87,8 +87,14 @@ impl SyncPipeline {
                     state.drawing_mode = drawing_mode;
                     state.mesh_version = fresh_version;
                     state.per_residue_colors = None;
+                    // ribbon_anchors are entity-local-residue-indexed like
+                    // sheet_offsets and stay index-valid only while the
+                    // residue layout is unchanged; clear both on a genuine
+                    // re-layout so a stale slice can't index a different
+                    // residue space. The next prepared mesh refills them.
                     if !layout_unchanged {
                         state.sheet_offsets.clear();
+                        state.ribbon_anchors.clear();
                     }
                 }
                 std::collections::hash_map::Entry::Vacant(slot) => {
@@ -98,6 +104,7 @@ impl SyncPipeline {
                         topology,
                         per_residue_colors: None,
                         sheet_offsets: Vec::new(),
+                        ribbon_anchors: Vec::new(),
                         mesh_version: fresh_version,
                     });
                 }
@@ -354,11 +361,12 @@ impl SyncPipeline {
             return false;
         };
 
-        // Lift the per-entity sheet-flattening offsets the mesh build just
-        // produced onto each EntityView, so structural-bond endpoint
-        // resolution (disulfides, hbonds) re-anchors sidechain atoms onto
-        // the same flattened sticks the mesh draws.
-        Self::store_sheet_offsets(scene, &prepared);
+        // Lift the per-entity sheet-flattening offsets and ribbon anchors
+        // the mesh build just produced onto each EntityView, so
+        // structural-bond endpoint resolution (disulfides, hbonds) re-anchors
+        // sidechain atoms onto the same flattened sticks and attaches
+        // backbone endpoints to the same drawn ribbon the mesh draws.
+        Self::store_mesh_anchors(scene, &prepared);
 
         let entity_transitions = animation.take_pending_transitions();
         let animating = !entity_transitions.is_empty();
@@ -386,25 +394,61 @@ impl SyncPipeline {
     }
 
     /// Partition the prepared mesh's whole-assembly sheet-flattening
-    /// offsets back onto each [`EntityView`], re-based to entity-local
-    /// residue indices.
+    /// offsets and ribbon anchors back onto each [`EntityView`], re-based to
+    /// entity-local residue indices.
     ///
-    /// `prepared.backbone.sheet_offsets` are global-residue-indexed
-    /// (mesh concatenation rebases each entity's base-0 offsets by its
-    /// global residue base); `prepared.entity_residue_offsets` records
-    /// each entity's base in ascending assembly-visible order. Both lists
-    /// are ascending by residue index, so one linear pass buckets each
-    /// offset into its owning entity and subtracts the base. No geometry
-    /// math runs here: these are the exact deltas the mesh used to shift
-    /// the entity's sidechain stick mesh.
-    fn store_sheet_offsets(scene: &mut Scene, prepared: &PreparedRebuild) {
-        // Clear first so an entity whose strands disappeared this rebuild
-        // ends up with an empty slice rather than a stale one.
+    /// `prepared.backbone.sheet_offsets` and `prepared.backbone.ribbon_anchors`
+    /// are both global-residue-indexed (mesh concatenation rebases each
+    /// entity's base-0 indices by its global residue base);
+    /// `prepared.entity_residue_offsets` records each entity's base in
+    /// ascending assembly-visible order. Both lists are ascending by residue
+    /// index, so one linear pass per list buckets each item into its owning
+    /// entity and subtracts the base. No geometry math runs here: these are
+    /// the exact deltas and anchors the mesh produced.
+    fn store_mesh_anchors(scene: &mut Scene, prepared: &PreparedRebuild) {
+        Self::partition_anchors_onto_views(
+            scene,
+            &prepared.backbone.sheet_offsets,
+            &prepared.backbone.ribbon_anchors,
+            &prepared.entity_residue_offsets,
+        );
+    }
+
+    /// Lift an animation frame's fresh sheet offsets + ribbon anchors onto
+    /// each [`EntityView`] using the same partition the full-rebuild path
+    /// uses. Routed through here (not the GPU layer) because this layer holds
+    /// the [`Scene`] borrow `entity_residue_offsets` partitioning needs.
+    pub(crate) fn store_animation_anchors(
+        scene: &mut Scene,
+        anchors: &crate::renderer::gpu_pipeline::AnimationAnchors,
+    ) {
+        Self::partition_anchors_onto_views(
+            scene,
+            &anchors.sheet_offsets,
+            &anchors.ribbon_anchors,
+            &anchors.entity_residue_offsets,
+        );
+    }
+
+    /// Shared partition: bucket whole-assembly sheet offsets + ribbon anchors
+    /// into their owning entities and rebase to entity-local residue indices.
+    /// Both lists are ascending by global residue index and
+    /// `entity_residue_offsets` records each entity's base in ascending
+    /// assembly order, so one linear pass per list suffices. No geometry math
+    /// runs here.
+    fn partition_anchors_onto_views(
+        scene: &mut Scene,
+        sheet_offsets: &[crate::renderer::geometry::backbone::SheetOffset],
+        ribbon_anchors: &[crate::renderer::geometry::backbone::RibbonAnchor],
+        bases: &[(EntityId, u32)],
+    ) {
+        // Clear first so an entity whose strands/anchors disappeared this
+        // rebuild ends up with empty slices rather than stale ones.
         for state in scene.entity_state.values_mut() {
             state.sheet_offsets.clear();
+            state.ribbon_anchors.clear();
         }
 
-        let bases = &prepared.entity_residue_offsets;
         for (i, &(eid, base)) in bases.iter().enumerate() {
             // This entity owns global residues `[base, next_base)`.
             let next_base = bases.get(i + 1).map_or(u32::MAX, |&(_, b)| b);
@@ -412,9 +456,7 @@ impl SyncPipeline {
                 continue;
             };
             state.sheet_offsets.extend(
-                prepared
-                    .backbone
-                    .sheet_offsets
+                sheet_offsets
                     .iter()
                     .filter(|so| {
                         so.residue_idx >= base && so.residue_idx < next_base
@@ -423,6 +465,19 @@ impl SyncPipeline {
                         crate::renderer::geometry::backbone::SheetOffset {
                             residue_idx: so.residue_idx - base,
                             offset: so.offset,
+                        }
+                    }),
+            );
+            state.ribbon_anchors.extend(
+                ribbon_anchors
+                    .iter()
+                    .filter(|ra| {
+                        ra.residue_idx >= base && ra.residue_idx < next_base
+                    })
+                    .map(|ra| {
+                        crate::renderer::geometry::backbone::RibbonAnchor {
+                            residue_idx: ra.residue_idx - base,
+                            ..*ra
                         }
                     }),
             );

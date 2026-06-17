@@ -16,7 +16,7 @@ pub(crate) mod spline;
 use glam::Vec3;
 pub(crate) use mesh::ChainRange;
 use molex::SSType;
-pub(crate) use path::SheetOffset;
+pub(crate) use path::{RibbonAnchor, SheetOffset};
 
 /// Output of backbone mesh generation.
 #[derive(Default)]
@@ -25,6 +25,7 @@ pub(crate) struct BackboneMeshOutput {
     pub(crate) tube_indices: Vec<u32>,
     pub(crate) ribbon_indices: Vec<u32>,
     pub(crate) sheet_offsets: Vec<SheetOffset>,
+    pub(crate) ribbon_anchors: Vec<RibbonAnchor>,
     pub(crate) chain_ranges: Vec<ChainRange>,
 }
 
@@ -43,6 +44,7 @@ impl BackboneMeshOutput {
         self.tube_indices.extend(chain.tube_indices);
         self.ribbon_indices.extend(chain.ribbon_indices);
         self.sheet_offsets.extend(chain.sheet_offsets);
+        self.ribbon_anchors.extend(chain.ribbon_anchors);
 
         self.chain_ranges.push(ChainRange::new(
             tube_index_start..self.tube_indices.len() as u32,

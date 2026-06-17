@@ -64,6 +64,26 @@ pub(crate) struct SheetOffset {
     pub(crate) offset: Vec3,
 }
 
+/// Per-residue backbone anchor points sampled from the *drawn* ribbon
+/// centerline (the SS-aware spline over the sheet-flattened CAs the mesh
+/// extrudes), used to attach markers to the curve actually rendered.
+///
+/// `ca` is the flattened centerline point; `n`/`c` are evaluated on the
+/// same spline at the fractional residue offsets where the N and C atoms
+/// project, so a marker endpoint lands on the ribbon rather than on a raw
+/// atom floating off it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RibbonAnchor {
+    /// Global residue index this anchor belongs to.
+    pub(crate) residue_idx: u32,
+    /// Ribbon-projected N position (donor anchoring).
+    pub(crate) n: Vec3,
+    /// Centerline CA position (the drawn flattened point).
+    pub(crate) ca: Vec3,
+    /// Ribbon-projected C position (acceptor anchoring).
+    pub(crate) c: Vec3,
+}
+
 /// Sheet-specific backbone geometry produced by [`compute_sheet_geometry`].
 ///
 /// `flat_ca` and `normals` are residue-stride and equal length; `offsets`

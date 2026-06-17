@@ -92,28 +92,6 @@ pub(crate) fn residue_bracket(
     (r0, r1, rf - r0 as f32)
 }
 
-/// Evaluate a single point on the Catmull-Rom spline.
-///
-/// `span` selects which pair of control points (0..n-2), and `t` is the
-/// parameter within that span (0.0 = start control point, 1.0 = end).
-/// Uses phantom-point extrapolation (`ghost_neighbors`) for boundary
-/// spans.
-pub(crate) fn catmull_rom_eval(
-    points: &[Vec3],
-    span: usize,
-    t: f32,
-) -> Option<Vec3> {
-    let n = points.len();
-    if n < 2 || span >= n - 1 {
-        return None;
-    }
-
-    let (p0, p3) = ghost_neighbors(points, span);
-    let p1 = points[span];
-    let p2 = points[span + 1];
-    Some(catmull_rom_basis(p0, p1, p2, p3, t))
-}
-
 /// Cubic Hermite evaluation with explicit endpoint positions and tangents.
 ///
 /// `t in [0, 1]`. Tangent magnitudes are in "position units per unit `t`",

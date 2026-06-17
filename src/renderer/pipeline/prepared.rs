@@ -11,7 +11,9 @@ use crate::options::{
     ColorOptions, DisplayOptions, DrawingMode, GeometryOptions,
 };
 use crate::renderer::entity_topology::EntityTopology;
-use crate::renderer::geometry::backbone::{ChainRange, SheetOffset};
+use crate::renderer::geometry::backbone::{
+    ChainRange, RibbonAnchor, SheetOffset,
+};
 use crate::renderer::geometry::isosurface::IsosurfaceVertex;
 use crate::renderer::picking::PickMap;
 
@@ -32,6 +34,10 @@ pub(crate) struct BackboneMeshData {
     pub(crate) ribbon_index_count: u32,
     /// Per-residue sheet normal offsets for sidechain adjustment.
     pub(crate) sheet_offsets: Vec<SheetOffset>,
+    /// Per-residue ribbon anchors sampled from the drawn centerline.
+    /// CPU-only side channel (never uploaded to the GPU), used to attach
+    /// structural-bond and clash markers to the rendered ribbon.
+    pub(crate) ribbon_anchors: Vec<RibbonAnchor>,
     /// Per-chain index ranges and bounding spheres for frustum culling.
     pub(crate) chain_ranges: Vec<ChainRange>,
 }
@@ -71,6 +77,7 @@ pub(super) struct CachedBackbone {
     pub ribbon_inds: Vec<u32>,
     pub vert_count: u32,
     pub sheet_offsets: Vec<SheetOffset>,
+    pub ribbon_anchors: Vec<RibbonAnchor>,
     pub chain_ranges: Vec<ChainRange>,
 }
 

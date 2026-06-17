@@ -5,10 +5,10 @@
 //!
 //! Unlike the per-frame band/pull/clash/grease resolution in
 //! [`crate::engine::constraint`], this path runs only at those
-//! position-finalizing seams, so backbone hbonds track the animating ribbon
-//! and a sheet-residue SG picks up the sheet-flattening offset while a
-//! resting scene re-resolves nothing per frame. The ribbon-projection cache
-//! and the shared
+//! position-finalizing seams, so a backbone hbond attaches to the mesh's
+//! emitted ribbon anchors and a sheet-residue SG picks up the
+//! sheet-flattening offset while a resting scene re-resolves nothing per
+//! frame. The ribbon-anchor view and the shared
 //! [`rendered_atom_position`](crate::engine::scene_state::rendered_atom_position)
 //! resolver are borrowed from [`crate::engine::constraint`].
 
@@ -33,10 +33,11 @@ use crate::renderer::GpuPipeline;
 /// buffer.
 ///
 /// Runs whenever positions become final (a sync, a consumed mesh, or an
-/// animation/trajectory tick) rather than every frame, so backbone hbonds
-/// track the animating ribbon and a sheet-residue SG picks up the
-/// sheet-flattening offset (only known after the mesh returns) while a
-/// resting scene re-resolves nothing per frame. Each toggle gates its
+/// animation/trajectory tick) rather than every frame, so a backbone hbond
+/// attaches to the mesh's emitted ribbon anchors and a sheet-residue SG
+/// picks up the sheet-flattening offset (both only known after the mesh
+/// returns) while a resting scene re-resolves nothing per frame. Each toggle
+/// gates its
 /// source; the full set is uploaded unconditionally (an empty set clears
 /// the buffer rather than leaving a stale one) and the renderer reallocs as
 /// needed, so the tracked capacity always equals the live link count.
@@ -46,10 +47,9 @@ pub(super) fn resolve_and_upload_bond_connections(
     options: &VisoOptions,
     gpu: &mut GpuPipeline,
 ) {
-    // Ribbon-projection cache for Cartoon-mode protein entities, mirroring
-    // the sync-time cache the backbone-hbond path built: a backbone hbond
-    // endpoint projects onto the cartoon spline so the end lands on the
-    // drawn curve. Disulfide SG atoms are sidechain and ignore the ribbon.
+    // Ribbon-anchor view for Cartoon-mode protein entities: a backbone hbond
+    // endpoint resolves to the mesh's emitted N/C anchor so the end lands on
+    // the drawn ribbon. Disulfide SG atoms are sidechain and ignore the ribbon.
     let ribbons = build_hbond_ribbons(scene);
 
     let mut bonds: Vec<StructuralBond> = Vec::new();
@@ -102,7 +102,7 @@ fn append_link_capsules(
     out: &mut Vec<StructuralBond>,
     scene: &Scene,
     annotations: &EntityAnnotations,
-    ribbons: &FxHashMap<EntityId, RibbonBackbone>,
+    ribbons: &FxHashMap<EntityId, RibbonBackbone<'_>>,
     links: &[AtomLink],
     build: impl Fn(Vec3, Vec3) -> StructuralBond,
 ) {
@@ -154,7 +154,7 @@ fn connection_end_visible(
 /// link is dropped, exactly as clashes skip).
 fn resolve_connection_end(
     scene: &Scene,
-    ribbons: &FxHashMap<EntityId, RibbonBackbone>,
+    ribbons: &FxHashMap<EntityId, RibbonBackbone<'_>>,
     end: &AtomEnd,
 ) -> Option<Vec3> {
     match end {
@@ -174,7 +174,7 @@ fn resolve_connection_end(
 /// the raw position when the entity view or residue index is absent.
 fn resolve_connection_atom(
     scene: &Scene,
-    ribbons: &FxHashMap<EntityId, RibbonBackbone>,
+    ribbons: &FxHashMap<EntityId, RibbonBackbone<'_>>,
     atom: AtomId,
 ) -> Option<Vec3> {
     let raw = scene

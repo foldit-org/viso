@@ -1,6 +1,7 @@
 //! All GPU infrastructure grouped together.
 
 use glam::{Mat4, Vec3};
+use molex::entity::molecule::id::EntityId;
 
 use crate::camera::controller::CameraController;
 use crate::camera::core::Camera;
@@ -9,6 +10,7 @@ use crate::gpu::lighting::Lighting;
 use crate::gpu::{RenderContext, ShaderComposer};
 use crate::options::{GeometryOptions, LightingOptions, VisoOptions};
 use crate::renderer::draw_context::DrawBindGroups;
+use crate::renderer::geometry::backbone::{RibbonAnchor, SheetOffset};
 use crate::renderer::geometry::PreparedBallAndStickData;
 use crate::renderer::impostor::CapsuleInstance;
 use crate::renderer::picking::PickingSystem;
@@ -19,6 +21,20 @@ use crate::renderer::pipeline::{SceneProcessor, SceneRequest};
 use crate::renderer::postprocess::post_process::PostProcessCamera;
 use crate::renderer::postprocess::PostProcessStack;
 use crate::renderer::{GeometryPassInput, Renderers};
+
+/// Per-residue mesh side channels an animation frame carries back so the
+/// engine layer can refresh each `EntityView` from the spot that holds the
+/// `Scene` borrow. Globally-residue-indexed, partitioned per entity by
+/// `entity_residue_offsets` (the same shape the full-rebuild path uses).
+pub(crate) struct AnimationAnchors {
+    /// Per-residue sheet-flattening offsets, global residue index.
+    pub(crate) sheet_offsets: Vec<SheetOffset>,
+    /// Per-residue ribbon anchors on the drawn centerline, global residue
+    /// index.
+    pub(crate) ribbon_anchors: Vec<RibbonAnchor>,
+    /// Each entity's first global residue index, ascending assembly order.
+    pub(crate) entity_residue_offsets: Vec<(EntityId, u32)>,
+}
 
 /// Borrowed scene chain data needed by [`GpuPipeline::upload_prepared`].
 pub(crate) struct SceneChainData<'a> {
@@ -212,10 +228,20 @@ impl GpuPipeline {
 
     /// Apply any pending animation frame from the background thread.
     ///
-    /// Returns `true` if a frame was applied, `false` otherwise.
-    pub(crate) fn apply_pending_animation(&mut self) -> bool {
-        let Some(prepared) = self.scene_processor.try_recv_animation() else {
-            return false;
+    /// Returns the per-residue mesh anchors the consumed frame carried (so
+    /// the caller can lift its fresh sheet offsets + ribbon anchors onto each
+    /// `EntityView` from the layer that holds the `Scene` borrow), or `None`
+    /// when no frame was pending. Only the small per-residue side channels
+    /// are handed back; the bulky vertex/index bytes move straight to the GPU.
+    pub(crate) fn apply_pending_animation(
+        &mut self,
+    ) -> Option<AnimationAnchors> {
+        let prepared = self.scene_processor.try_recv_animation()?;
+
+        let anchors = AnimationAnchors {
+            sheet_offsets: prepared.backbone.sheet_offsets.clone(),
+            ribbon_anchors: prepared.backbone.ribbon_anchors.clone(),
+            entity_residue_offsets: prepared.entity_residue_offsets.clone(),
         };
 
         self.renderers.backbone.apply_mesh(
@@ -268,7 +294,7 @@ impl GpuPipeline {
             &prepared.na,
         );
 
-        true
+        Some(anchors)
     }
 
     /// Submit an animation frame to the background thread using the

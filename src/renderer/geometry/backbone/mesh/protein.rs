@@ -6,7 +6,8 @@ use glam::Vec3;
 use super::super::curve::{cubic_bspline, sliding_window_centroids};
 use super::super::index::{extrude_and_index, MeshParams};
 use super::super::path::{
-    compute_sheet_geometry, interpolate_per_residue_normals, SheetGeometry,
+    compute_sheet_geometry, interpolate_per_residue_normals, RibbonAnchor,
+    SheetGeometry,
 };
 use super::super::profile::{interpolate_profiles, CrossSectionProfile};
 use super::super::spline::{
@@ -82,13 +83,89 @@ pub(super) fn generate_protein_chain_mesh(
     let (verts, tube_inds, ribbon_inds) =
         extrude_and_index(&final_frames, &spline_profiles, params);
 
+    let ribbon_anchors = build_ribbon_anchors(
+        &spline_points,
+        &flat_ca,
+        atoms,
+        spr,
+        global_residue_base,
+    );
+
     BackboneMeshOutput {
         vertices: verts,
         tube_indices: tube_inds,
         ribbon_indices: ribbon_inds,
         sheet_offsets,
+        ribbon_anchors,
         ..Default::default()
     }
+}
+
+/// Per-residue ribbon anchors on the drawn centerline.
+///
+/// `spline` is the SS-aware spline over the sheet-flattened CAs the mesh
+/// extrudes; it carries `spr` samples per residue span plus one final
+/// endpoint, so residue `i`'s centerline sits at sample `i * spr`. The N
+/// and C anchors are sampled from that same curve at the fractional
+/// residue offsets where the peptide N and C project (N two-thirds of the
+/// way through the prior span, C about a third into the next), so a marker
+/// endpoint lands on the rendered ribbon rather than on the raw atom. Edge
+/// residues fall outside the spannable range, so their N/C use the raw
+/// backbone atom.
+fn build_ribbon_anchors(
+    spline: &[Vec3],
+    flat_ca: &[Vec3],
+    atoms: &crate::renderer::entity_topology::ProteinBackboneChain,
+    spr: usize,
+    global_residue_base: u32,
+) -> Vec<RibbonAnchor> {
+    /// Fraction of the CA->CA span where C sits (CA->C / total).
+    const C_FRAC: f32 = 0.35;
+    /// Fraction of the CA->CA span where N sits (measured from the
+    /// previous CA).
+    const N_FRAC: f32 = 0.66;
+
+    let n_res = flat_ca.len();
+    let mut anchors = Vec::with_capacity(n_res);
+    for (i, &ca) in flat_ca.iter().enumerate() {
+        let n = if i == 0 {
+            atoms.n()[i]
+        } else {
+            sample_spline(spline, (i - 1) as f32 + N_FRAC, spr)
+                .unwrap_or_else(|| atoms.n()[i])
+        };
+        let c = if i + 1 >= n_res {
+            atoms.c()[i]
+        } else {
+            sample_spline(spline, i as f32 + C_FRAC, spr)
+                .unwrap_or_else(|| atoms.c()[i])
+        };
+        anchors.push(RibbonAnchor {
+            residue_idx: global_residue_base + i as u32,
+            n,
+            ca,
+            c,
+        });
+    }
+    anchors
+}
+
+/// Sample the dense spline at fractional residue position `residue_pos`
+/// (residue `i` lives at spline index `i * spr`), interpolating linearly
+/// between the two bracketing dense samples. Returns `None` if the target
+/// index falls outside the spline.
+fn sample_spline(
+    spline: &[Vec3],
+    residue_pos: f32,
+    spr: usize,
+) -> Option<Vec3> {
+    let idx = residue_pos * spr as f32;
+    let lo = idx.floor() as usize;
+    let hi = lo + 1;
+    let frac = idx - lo as f32;
+    let a = *spline.get(lo)?;
+    let b = *spline.get(hi)?;
+    Some(a.lerp(b, frac))
 }
 
 // NORMAL BLENDING (protein only)

@@ -4,7 +4,9 @@ use super::prepared::{
     BackboneMeshData, BallAndStickInstances, CachedEntityMesh,
     NucleicAcidInstances, PreparedRebuild,
 };
-use crate::renderer::geometry::backbone::{ChainRange, SheetOffset};
+use crate::renderer::geometry::backbone::{
+    ChainRange, RibbonAnchor, SheetOffset,
+};
 use crate::renderer::picking::PickMap;
 
 /// Offset the `residue_idx` field embedded in raw vertex bytes.
@@ -88,6 +90,7 @@ struct MeshAccumulator {
     backbone_ribbon_inds: Vec<u32>,
     backbone_vert_offset: u32,
     sheet_offsets: Vec<SheetOffset>,
+    ribbon_anchors: Vec<RibbonAnchor>,
     chain_ranges: Vec<ChainRange>,
     // Sidechain instances
     sidechain_bytes: Vec<u8>,
@@ -177,6 +180,12 @@ impl MeshAccumulator {
                 offset: so.offset,
             });
         }
+        for ra in &mesh.backbone.ribbon_anchors {
+            self.ribbon_anchors.push(RibbonAnchor {
+                residue_idx: ra.residue_idx + self.residue_offset,
+                ..*ra
+            });
+        }
         let tube_idx_offset = self.backbone_tube_inds.len() as u32
             - mesh.backbone.tube_inds.len() as u32;
         let ribbon_idx_offset = self.backbone_ribbon_inds.len() as u32
@@ -263,6 +272,7 @@ impl MeshAccumulator {
                 .to_vec(),
                 ribbon_index_count,
                 sheet_offsets: self.sheet_offsets,
+                ribbon_anchors: self.ribbon_anchors,
                 chain_ranges: self.chain_ranges,
             },
             sidechain_instances: self.sidechain_bytes,

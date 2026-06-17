@@ -147,7 +147,7 @@ fn resolve_band(
 /// absent or its atom fails to resolve, exactly as bands skip.
 fn resolve_clash(
     ctx: &ConstraintContext<'_>,
-    ribbons: &FxHashMap<EntityId, RibbonBackbone>,
+    ribbons: &FxHashMap<EntityId, RibbonBackbone<'_>>,
     clash: &ClashInfo,
 ) -> Option<ResolvedClash> {
     let endpoint_a = resolve_hbond_endpoint(ctx.scene, ribbons, &clash.a)?;
@@ -202,7 +202,7 @@ fn resolve_clash_endpoint(scene: &Scene, ep: &ClashEndpoint) -> Option<Vec3> {
 /// `ep.residue` is the entity-local residue index the resolver expects.
 fn resolve_hbond_endpoint(
     scene: &Scene,
-    ribbons: &FxHashMap<EntityId, RibbonBackbone>,
+    ribbons: &FxHashMap<EntityId, RibbonBackbone<'_>>,
     ep: &ClashEndpoint,
 ) -> Option<Vec3> {
     let raw = resolve_clash_endpoint(scene, ep)?;
@@ -220,14 +220,15 @@ fn resolve_hbond_endpoint(
     ))
 }
 
-/// Build the per-frame ribbon-projection cache for Cartoon-mode protein
-/// entities, mirroring the sync-time cache the molex backbone-hbond path
-/// builds. Shared each frame by the clash endpoints and the hbond/disulfide
-/// block. Entities not in Cartoon mode, non-proteins, or too short to
-/// project are absent — their backbone endpoints fall back to raw.
+/// View each Cartoon-mode protein entity's stored ribbon anchors (the ones
+/// the cartoon mesh emitted), keyed by entity id. Shared each frame by the
+/// clash endpoints and the hbond/disulfide block so backbone endpoints
+/// attach to the drawn ribbon. Entities not in Cartoon mode, non-proteins,
+/// or without anchors yet are absent -- their backbone endpoints fall back
+/// to raw.
 pub(super) fn build_hbond_ribbons(
     scene: &Scene,
-) -> FxHashMap<EntityId, RibbonBackbone> {
+) -> FxHashMap<EntityId, RibbonBackbone<'_>> {
     scene
         .entity_state
         .iter()
@@ -236,8 +237,7 @@ pub(super) fn build_hbond_ribbons(
                 && state.topology.is_protein()
         })
         .filter_map(|(&id, state)| {
-            let positions = scene.positions.get(id)?;
-            let ribbon = RibbonBackbone::project(&state.topology, positions)?;
+            let ribbon = RibbonBackbone::from_anchors(&state.ribbon_anchors)?;
             Some((id, ribbon))
         })
         .collect()
@@ -527,12 +527,12 @@ impl ConstraintSpecs {
         gpu: &mut GpuPipeline,
     ) {
         let viewport = (gpu.context.config.width, gpu.context.config.height);
-        // Ribbon-projection cache for Cartoon-mode protein entities, built
-        // once per frame and shared by the clash endpoints (which may be
-        // backbone atoms needing the spline). Sidechain endpoints ignore it
-        // (they take the sheet offset), and entities not in Cartoon / too
-        // short to project are absent so those endpoints fall back to raw.
-        // Only built when something consumes it (clashes); empty otherwise.
+        // Views over each Cartoon-mode protein entity's stored ribbon anchors,
+        // shared by the clash endpoints (which may be backbone atoms reading the
+        // drawn-ribbon anchor). Sidechain endpoints ignore it (they take the
+        // sheet offset), and entities with no anchors yet are absent so those
+        // endpoints fall back to raw. Only built when something consumes it
+        // (clashes); empty otherwise.
         let ribbons = if self.clash_specs.is_empty() {
             FxHashMap::default()
         } else {

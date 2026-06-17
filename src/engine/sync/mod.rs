@@ -79,7 +79,15 @@ impl VisoEngine {
 
     /// Apply any pending animation frame from the background thread.
     pub(crate) fn apply_pending_animation(&mut self) {
-        let _ = self.gpu.apply_pending_animation();
+        let Some(anchors) = self.gpu.apply_pending_animation() else {
+            return;
+        };
+        // The frame regenerated the mesh with fresh sheet offsets + ribbon
+        // anchors; lift them onto each EntityView so structural-bond endpoints
+        // stay on the drawn ribbon/sticks as the cartoon animates, then
+        // re-resolve the capsules against the just-applied frame.
+        SyncPipeline::store_animation_anchors(&mut self.scene, &anchors);
+        self.resolve_and_upload_bond_connections();
     }
 
     /// Submit an animation frame to the background thread using the

@@ -1,66 +1,12 @@
-//! Backbone curve helpers split out of `spline.rs`: backbone-atom
-//! projection, B-spline smoothing, and sliding-window centroids.
+//! Backbone curve helpers split out of `spline.rs`: B-spline smoothing
+//! and sliding-window centroids.
 //!
 //! These are non-frame curve utilities (no RMF/Frenet state); the frame
 //! math stays in `spline.rs`.
 
 use glam::Vec3;
 
-use super::spline::{catmull_rom_eval, linear_interpolate};
-
-/// Project backbone N and C atom positions onto the Catmull-Rom spline
-/// defined by CA control points.
-///
-/// Returns `(n_positions, c_positions)` -- one per residue -- sitting on
-/// the rendered backbone curve. The span fractions below are empirically
-/// tuned to place C/N plausibly on the CA spline; they are *not* exact
-/// `bond_length / 3.8 A` ratios (those would be ~0.40 / ~0.61) -- the
-/// rendered curve is not a straight CA->CA chord, so the visually
-/// correct fractions differ from the idealized geometric ones.
-///
-/// Edge residues (first N, last C in each chain) use the raw backbone
-/// positions since they fall outside the spline's control-point range.
-pub(crate) fn project_backbone_atoms(
-    backbone_chains: &[crate::renderer::entity_topology::ProteinBackboneChain],
-) -> (Vec<Vec3>, Vec<Vec3>) {
-    /// Fraction of CA->CA span where C sits (CA->C / total).
-    const C_FRAC: f32 = 0.35;
-    /// Fraction of CA->CA span where N sits (measured from previous CA).
-    const N_FRAC: f32 = 0.66;
-
-    let mut all_n = Vec::new();
-    let mut all_c = Vec::new();
-
-    for chain in backbone_chains {
-        let n_res = chain.residue_count();
-        if n_res == 0 {
-            continue;
-        }
-
-        for i in 0..n_res {
-            // N position: on the spline at N_FRAC into span (i-1 -> i).
-            let n_pos = if i == 0 || chain.ca().len() < 2 {
-                chain.n()[i] // raw N for first residue
-            } else {
-                catmull_rom_eval(chain.ca(), i - 1, N_FRAC)
-                    .unwrap_or_else(|| chain.n()[i])
-            };
-
-            // C position: on the spline at C_FRAC into span (i -> i+1).
-            let c_pos = if i >= n_res - 1 || chain.ca().len() < 2 {
-                chain.c()[i] // raw C for last residue
-            } else {
-                catmull_rom_eval(chain.ca(), i, C_FRAC)
-                    .unwrap_or_else(|| chain.c()[i])
-            };
-
-            all_n.push(n_pos);
-            all_c.push(c_pos);
-        }
-    }
-
-    (all_n, all_c)
-}
+use super::spline::linear_interpolate;
 
 /// Cubic B-spline (smooth approximation, does not pass through control points).
 /// Used for helix axis smoothing.

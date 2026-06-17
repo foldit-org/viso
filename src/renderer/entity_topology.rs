@@ -120,12 +120,6 @@ impl ProteinBackboneChain {
     pub(crate) fn o(&self) -> &[Vec3] {
         &self.o
     }
-
-    /// Number of residues in this segment. All four vecs have the same
-    /// length under the SoA invariant.
-    pub(crate) fn residue_count(&self) -> usize {
-        self.ca.len()
-    }
 }
 
 /// Resolved P-atom positions for one continuous nucleic-acid backbone
@@ -526,7 +520,6 @@ mod tests {
             (0..8).map(|i| Vec3::splat(i as f32)).collect();
         let layout = indices(&[0, 4], &[1, 5], &[2, 6], &[3, 7]);
         let chain = layout.resolve(&positions);
-        assert_eq!(chain.residue_count(), 2);
         assert_eq!(chain.n().len(), 2);
         assert_eq!(chain.ca().len(), 2);
         assert_eq!(chain.c().len(), 2);
