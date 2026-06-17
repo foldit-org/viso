@@ -1,4 +1,6 @@
+use glam::Vec3;
 use molex::entity::molecule::id::EntityId;
+use rustc_hash::FxHashMap;
 
 use super::prepared::{
     BackboneMeshData, BallAndStickInstances, CachedEntityMesh,
@@ -118,12 +120,24 @@ struct MeshAccumulator {
     /// aligned with the assembly-order visible-entity walk that produced
     /// the per-entity meshes.
     entity_residue_offsets: Vec<(EntityId, u32)>,
+    /// The atom positions that produced each entity's mesh, captured in the
+    /// same assembly-order walk so it stays keyed parallel to
+    /// `entity_residue_offsets`. Entity-local indexed.
+    displayed_positions: Vec<(EntityId, Vec<Vec3>)>,
 }
 
 impl MeshAccumulator {
-    fn push_entity(&mut self, mesh: &CachedEntityMesh) {
+    fn push_entity(
+        &mut self,
+        mesh: &CachedEntityMesh,
+        positions: &FxHashMap<EntityId, Vec<Vec3>>,
+    ) {
         self.entity_residue_offsets
             .push((mesh.entity_id, self.residue_offset));
+        self.displayed_positions.push((
+            mesh.entity_id,
+            positions.get(&mesh.entity_id).cloned().unwrap_or_default(),
+        ));
         self.push_backbone(mesh);
 
         // Sidechain capsules pack a per-entity-local residue index in
@@ -296,6 +310,7 @@ impl MeshAccumulator {
             },
             pick_map,
             entity_residue_offsets: self.entity_residue_offsets,
+            displayed_positions: self.displayed_positions,
         }
     }
 }
@@ -318,12 +333,18 @@ fn patch_pick_id_buffer(
 }
 
 /// Concatenate per-entity cached meshes into a single `PreparedRebuild`.
+///
+/// `positions` supplies the atom positions each entity was meshed from,
+/// keyed by entity id; the snapshot is captured per entity in the same walk
+/// that builds `entity_residue_offsets`, so the two stay parallel for the
+/// apply-side partition onto each `EntityView`.
 pub(crate) fn concatenate_meshes(
     entity_meshes: &[&CachedEntityMesh],
+    positions: &FxHashMap<EntityId, Vec<Vec3>>,
 ) -> PreparedRebuild {
     let mut acc = MeshAccumulator::default();
     for mesh in entity_meshes {
-        acc.push_entity(mesh);
+        acc.push_entity(mesh, positions);
     }
     acc.into_prepared_rebuild()
 }

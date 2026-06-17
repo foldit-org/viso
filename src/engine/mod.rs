@@ -212,22 +212,20 @@ impl VisoEngine {
     /// Tick animation (both trajectory and structural), submitting any
     /// interpolated frame to the background thread.
     ///
-    /// Whenever a tick mutates `scene.positions` (a trajectory frame, or a
-    /// structural-animation step), the bond capsules are re-resolved and
-    /// re-uploaded against the just-mutated positions so hydrogen-bond and
-    /// disulfide capsules track the moving atoms rather than freezing on the
-    /// last synced coordinate.
+    /// A tick only mutates the live `scene.positions` and submits a frame;
+    /// the bond capsules are re-resolved on the apply side
+    /// ([`Self::apply_pending_animation`]), against the displayed frame the
+    /// overlays read, so they stay coherent with the drawn mesh rather than
+    /// tracking the live positions a worker round-trip ahead.
     fn tick_animation(&mut self) {
         let now = Instant::now();
         let trajectory_frame = self.animation.advance_trajectory(now);
         if let Some(frame) = trajectory_frame {
             self.apply_trajectory_frame(&frame);
             self.submit_animation_frame();
-            self.resolve_and_upload_bond_connections();
         }
         if self.animation.tick(now, &mut self.scene.positions) {
             self.submit_animation_frame();
-            self.resolve_and_upload_bond_connections();
         }
     }
 

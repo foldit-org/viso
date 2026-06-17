@@ -34,6 +34,11 @@ pub(crate) struct AnimationAnchors {
     pub(crate) ribbon_anchors: Vec<RibbonAnchor>,
     /// Each entity's first global residue index, ascending assembly order.
     pub(crate) entity_residue_offsets: Vec<(EntityId, u32)>,
+    /// The atom positions this frame meshed, per entity (entity-local
+    /// indexed), keyed parallel to `entity_residue_offsets`. Lifted onto
+    /// each `EntityView` so overlays read the displayed frame, not the live
+    /// one a worker round-trip ahead.
+    pub(crate) displayed_positions: Vec<(EntityId, Vec<Vec3>)>,
 }
 
 /// Borrowed scene chain data needed by [`GpuPipeline::upload_prepared`].
@@ -242,6 +247,7 @@ impl GpuPipeline {
             sheet_offsets: prepared.backbone.sheet_offsets.clone(),
             ribbon_anchors: prepared.backbone.ribbon_anchors.clone(),
             entity_residue_offsets: prepared.entity_residue_offsets.clone(),
+            displayed_positions: prepared.displayed_positions.clone(),
         };
 
         self.renderers.backbone.apply_mesh(

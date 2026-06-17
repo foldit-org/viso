@@ -11,6 +11,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 
+use glam::Vec3;
 use molex::entity::molecule::id::EntityId;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -329,6 +330,13 @@ impl SceneProcessor {
                     } = *body;
                     last_topology_generation = topology_generation;
                     cache.cache_stable_data(&entities, &entity_options);
+                    // Snapshot the positions each entity is about to be
+                    // meshed from so the prepared rebuild carries the
+                    // displayed frame onward to the overlay resolvers.
+                    let displayed: FxHashMap<EntityId, Vec<Vec3>> = entities
+                        .iter()
+                        .map(|e| (e.id, e.positions.clone()))
+                        .collect();
                     let entity_meshes = cache.update(
                         &entities,
                         &display,
@@ -336,8 +344,10 @@ impl SceneProcessor {
                         &geometry,
                         &entity_options,
                     );
-                    let mut prepared =
-                        super::mesh_concat::concatenate_meshes(&entity_meshes);
+                    let mut prepared = super::mesh_concat::concatenate_meshes(
+                        &entity_meshes,
+                        &displayed,
+                    );
                     prepared.generation = generation;
                     prepared.topology_generation = topology_generation;
                     rebuild_input.write(Some(prepared));
@@ -458,7 +468,10 @@ impl MeshCache {
             (self.last_display.as_ref(), self.last_colors.as_ref())
         else {
             // No rebuild has populated the cache yet; nothing to animate.
-            return super::mesh_concat::concatenate_meshes(&[]);
+            return super::mesh_concat::concatenate_meshes(
+                &[],
+                &FxHashMap::default(),
+            );
         };
 
         let total_residues: usize = self
@@ -484,6 +497,8 @@ impl MeshCache {
 
         let mut meshes: Vec<CachedEntityMesh> =
             Vec::with_capacity(self.last_entities.len());
+        let mut displayed: FxHashMap<EntityId, Vec<Vec3>> =
+            FxHashMap::default();
         let mut lod_offset = 0usize;
         for e in &self.last_entities {
             // Only Cartoon entities contribute backbone chains (and thus
@@ -510,6 +525,7 @@ impl MeshCache {
             if let Some(p) = positions.get(e.id) {
                 entity.positions = p.to_vec();
             }
+            let _ = displayed.insert(e.id, entity.positions.clone());
             let mut mesh = super::mesh_gen::generate_entity_mesh(
                 &entity,
                 e_display,
@@ -524,7 +540,8 @@ impl MeshCache {
             meshes.push(mesh);
         }
         let refs: Vec<&CachedEntityMesh> = meshes.iter().collect();
-        let mut prepared = super::mesh_concat::concatenate_meshes(&refs);
+        let mut prepared =
+            super::mesh_concat::concatenate_meshes(&refs, &displayed);
         // Backbone-only frames leave the previously uploaded sidechains
         // untouched on apply; their positions are unchanged by level-of-detail.
         prepared.sidechains_omitted = !include_sidechains;

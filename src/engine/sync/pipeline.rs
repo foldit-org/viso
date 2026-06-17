@@ -95,6 +95,7 @@ impl SyncPipeline {
                     if !layout_unchanged {
                         state.sheet_offsets.clear();
                         state.ribbon_anchors.clear();
+                        state.displayed_positions.clear();
                     }
                 }
                 std::collections::hash_map::Entry::Vacant(slot) => {
@@ -105,6 +106,7 @@ impl SyncPipeline {
                         per_residue_colors: None,
                         sheet_offsets: Vec::new(),
                         ribbon_anchors: Vec::new(),
+                        displayed_positions: Vec::new(),
                         mesh_version: fresh_version,
                     });
                 }
@@ -411,6 +413,7 @@ impl SyncPipeline {
             &prepared.backbone.sheet_offsets,
             &prepared.backbone.ribbon_anchors,
             &prepared.entity_residue_offsets,
+            &prepared.displayed_positions,
         );
     }
 
@@ -427,6 +430,7 @@ impl SyncPipeline {
             &anchors.sheet_offsets,
             &anchors.ribbon_anchors,
             &anchors.entity_residue_offsets,
+            &anchors.displayed_positions,
         );
     }
 
@@ -441,12 +445,23 @@ impl SyncPipeline {
         sheet_offsets: &[crate::renderer::geometry::backbone::SheetOffset],
         ribbon_anchors: &[crate::renderer::geometry::backbone::RibbonAnchor],
         bases: &[(EntityId, u32)],
+        displayed_positions: &[(EntityId, Vec<Vec3>)],
     ) {
         // Clear first so an entity whose strands/anchors disappeared this
         // rebuild ends up with empty slices rather than stale ones.
         for state in scene.entity_state.values_mut() {
             state.sheet_offsets.clear();
             state.ribbon_anchors.clear();
+            state.displayed_positions.clear();
+        }
+
+        // Lift each entity's displayed-frame positions onto its view in
+        // lockstep with the anchors below, so an overlay resolver pairs a
+        // raw atom read with the ribbon/sheet transform from the same frame.
+        for (eid, positions) in displayed_positions {
+            if let Some(state) = scene.entity_state.get_mut(eid) {
+                state.displayed_positions.clone_from(positions);
+            }
         }
 
         for (i, &(eid, base)) in bases.iter().enumerate() {
@@ -514,6 +529,12 @@ impl SyncPipeline {
                 // reflects the new layout immediately -- interpolation
                 // is meaningless across mismatched shapes.
                 scene.positions.set(eid, target.clone());
+                // Mirror the snap into the displayed frame so overlays do
+                // not read a stale (old-layout) snapshot for the frame
+                // before the next prepared mesh refills it.
+                if let Some(state) = scene.entity_state.get_mut(&eid) {
+                    state.displayed_positions.clone_from(&target);
+                }
                 if !transition.allows_size_change {
                     continue;
                 }

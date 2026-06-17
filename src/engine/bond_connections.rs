@@ -166,24 +166,29 @@ fn resolve_connection_end(
 /// Resolve a connection's [`AtomId`] endpoint to its rendered world-space
 /// position.
 ///
-/// The raw coordinate comes straight from `scene.positions` for
-/// `(entity, index)`; the entity-local residue comes from
-/// `topology.atom_residue_index`. The atom's role name (which keys the
-/// Cartoon render transform) is derived from the atom's offset within its
-/// residue's canonical `N, CA, C, O, sidechain...` layout. Falls back to
-/// the raw position when the entity view or residue index is absent.
+/// The raw coordinate comes from the entity's displayed-frame snapshot for
+/// `(entity, index)` (the positions the drawn mesh was built from), so the
+/// capsule pairs with the same-frame ribbon/sheet transform; the
+/// entity-local residue comes from `topology.atom_residue_index`. The atom's
+/// role name (which keys the Cartoon render transform) is derived from the
+/// atom's offset within its residue's canonical `N, CA, C, O, sidechain...`
+/// layout. Falls back to the live position when the entity view is absent,
+/// or to the raw position when the residue index is absent.
 fn resolve_connection_atom(
     scene: &Scene,
     ribbons: &FxHashMap<EntityId, RibbonBackbone<'_>>,
     atom: AtomId,
 ) -> Option<Vec3> {
-    let raw = scene
-        .positions
-        .get(atom.entity)
-        .and_then(|slice| slice.get(atom.index as usize).copied())?;
     let Some(state) = scene.entity_state.get(&atom.entity) else {
-        return Some(raw);
+        // No view yet: read the live position directly (no render
+        // transform applies without a view).
+        return scene
+            .positions
+            .get(atom.entity)
+            .and_then(|slice| slice.get(atom.index as usize).copied());
     };
+    let raw = super::constraint::displayed_positions(state, scene, atom.entity)
+        .and_then(|slice| slice.get(atom.index as usize).copied())?;
     let Some(residue) = state
         .topology
         .atom_residue_index

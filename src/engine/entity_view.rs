@@ -63,6 +63,15 @@ pub(crate) struct EntityView {
     /// (full rebuild or animation frame); empty for non-protein entities or
     /// before the first mesh lands.
     pub(crate) ribbon_anchors: Vec<RibbonAnchor>,
+    /// The atom positions that produced the currently displayed mesh,
+    /// entity-local indexed (parallel to `topology.atom_elements`). Lifted
+    /// off the same prepared mesh as `sheet_offsets`/`ribbon_anchors`, so an
+    /// overlay resolver reading a raw atom position here pairs it with the
+    /// ribbon/sheet transform from the same frame and stays glued to the
+    /// drawn geometry. Refreshed whenever a prepared mesh is applied (full
+    /// rebuild or animation frame); empty before the first mesh lands, where
+    /// resolvers fall back to the live positions.
+    pub(crate) displayed_positions: Vec<Vec3>,
     /// Bumped whenever this entity's geometry needs to be regenerated.
     pub(crate) mesh_version: u64,
 }

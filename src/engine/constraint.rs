@@ -103,9 +103,26 @@ impl<'a> ConstraintContext<'a> {
             .ok()
             .map(|i| &self.cartoon_ranges[i])?;
         let state = self.scene.entity_state.get(&range.entity)?;
-        let positions = self.scene.positions.get(range.entity)?;
+        let positions = displayed_positions(state, self.scene, range.entity)?;
         let local_residue = atom.residue - range.start;
         resolve_atom_in_entity(state, positions, local_residue, &atom.atom_name)
+    }
+}
+
+/// The positions an overlay resolver should read for `entity`: the
+/// displayed-frame snapshot lifted off the last applied mesh, so a raw atom
+/// read pairs with the ribbon/sheet transform from the same frame. Falls
+/// back to the live positions before the first mesh has landed (the snapshot
+/// is empty until then), where no transform is applied either.
+pub(super) fn displayed_positions<'a>(
+    state: &'a EntityView,
+    scene: &'a Scene,
+    entity: EntityId,
+) -> Option<&'a [Vec3]> {
+    if state.displayed_positions.is_empty() {
+        scene.positions.get(entity)
+    } else {
+        Some(&state.displayed_positions)
     }
 }
 
@@ -188,7 +205,7 @@ fn clash_seed(a: &ClashEndpoint, b: &ClashEndpoint) -> f32 {
 /// if the entity is not present in the Scene or the atom does not resolve.
 fn resolve_clash_endpoint(scene: &Scene, ep: &ClashEndpoint) -> Option<Vec3> {
     let state = scene.entity_state.get(&ep.entity)?;
-    let positions = scene.positions.get(ep.entity)?;
+    let positions = displayed_positions(state, scene, ep.entity)?;
     resolve_atom_in_entity(state, positions, ep.residue, &ep.atom_name)
 }
 
@@ -255,7 +272,7 @@ fn resolve_exposed_hydro(
     bead: &ExposedHydrophobicInfo,
 ) -> Option<ResolvedExposedHydro> {
     let state = scene.entity_state.get(&bead.entity)?;
-    let positions = scene.positions.get(bead.entity)?;
+    let positions = displayed_positions(state, scene, bead.entity)?;
     let raw = resolve_sidechain_anchor(state, positions, bead.residue)?;
     // The anchor is a sidechain point (CB / centroid / CA fallback); the
     // sheet offset is per-residue and uniform across the sidechain, so route

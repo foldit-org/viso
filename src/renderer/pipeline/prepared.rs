@@ -397,6 +397,13 @@ pub(crate) struct PreparedRebuild {
     /// Each entity's first global residue index in the GPU selection /
     /// per-residue color space, in assembly-visible order.
     pub(crate) entity_residue_offsets: Vec<(EntityId, u32)>,
+    /// The atom positions that produced this mesh, per entity, keyed
+    /// parallel to `entity_residue_offsets`. Entity-local indexed (parallel
+    /// to each entity's `topology.atom_elements`). Lifted onto each
+    /// `EntityView` on apply so the overlay resolvers read the same frame
+    /// the displayed mesh and its anchors were built from, rather than the
+    /// live (worker-round-trip-ahead) positions.
+    pub(crate) displayed_positions: Vec<(EntityId, Vec<Vec3>)>,
 }
 
 // Per-entity cached mesh
