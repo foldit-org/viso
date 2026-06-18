@@ -722,6 +722,20 @@ impl VisoEngine {
         )
     }
 
+    /// Resolve a flat residue index to its owning entity's raw id and the
+    /// entity-local residue index, without needing a cursor position. Returns
+    /// `None` before the first full rebuild publishes the offsets table or
+    /// when `flat` falls outside every entity's residue span. The host maps
+    /// the raw id to its own [`EntityId`] the same way the pull-drag path
+    /// does (matching on `id.raw()`).
+    #[must_use]
+    pub fn flat_to_entity_residue(&self, flat: u32) -> Option<(u32, u32)> {
+        self.gpu
+            .pick
+            .flat_to_entity_residue(flat)
+            .map(|(eid, local)| (eid.raw(), local))
+    }
+
     /// Number of entities currently in the scene.
     #[must_use]
     pub fn entity_count(&self) -> usize {
