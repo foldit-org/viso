@@ -13,18 +13,18 @@ use crate::renderer::picking::PickMap;
 
 /// Offset the `residue_idx` field embedded in raw vertex bytes.
 ///
-/// `BackboneVertex` and `NaVertex` share the same 52-byte
-/// layout with a `u32 residue_idx` at byte offset 36. When concatenating
-/// vertices from multiple entities, each entity's local residue indices
-/// must be shifted by the global offset so the GPU's per-residue color
-/// buffer is indexed correctly.
+/// Every backbone vertex is the same 56-byte `BackboneVertex` with a
+/// `u32 residue_idx` at byte offset 40. When concatenating vertices from
+/// multiple entities, each entity's local residue indices must be shifted
+/// by the global offset so the GPU's per-residue color buffer is indexed
+/// correctly.
 pub(crate) fn offset_vertex_residue_idx(
     dst: &mut Vec<u8>,
     src: &[u8],
     offset: u32,
 ) {
-    const VERTEX_SIZE: usize = 52;
-    const RESIDUE_IDX_OFFSET: usize = 36;
+    const VERTEX_SIZE: usize = 56;
+    const RESIDUE_IDX_OFFSET: usize = 40;
 
     if offset == 0 {
         dst.extend_from_slice(src);

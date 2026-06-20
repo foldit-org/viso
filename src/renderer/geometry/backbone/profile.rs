@@ -26,7 +26,9 @@ pub(crate) struct CrossSectionProfile {
     /// boundaries by `interpolate_profiles`, giving a smooth ramp
     /// through the sheet<->coil transition instead of a hard switch.
     pub(crate) sheet_blend: f32,
-    pub(crate) color: [f32; 3],
+    /// RGBA cartoon color: `.a` is `1.0` for committed entities and the
+    /// preview alpha for provisional ones.
+    pub(crate) color: [f32; 4],
     pub(crate) residue_idx: u32,
 }
 
@@ -44,6 +46,7 @@ impl CrossSectionProfile {
                 self.color[0] + (other.color[0] - self.color[0]) * t,
                 self.color[1] + (other.color[1] - self.color[1]) * t,
                 self.color[2] + (other.color[2] - self.color[2]) * t,
+                self.color[3] + (other.color[3] - self.color[3]) * t,
             ],
             residue_idx: if t < 0.5 {
                 self.residue_idx
@@ -60,6 +63,7 @@ pub(crate) fn resolve_profile(
     ss: SSType,
     residue_idx: u32,
     color: [f32; 3],
+    alpha: f32,
     geo: &GeometryOptions,
 ) -> CrossSectionProfile {
     let (width, thickness, roundness, radial_blend, sheet_blend) = match ss {
@@ -91,7 +95,7 @@ pub(crate) fn resolve_profile(
         roundness,
         radial_blend,
         sheet_blend,
-        color,
+        color: [color[0], color[1], color[2], alpha],
         residue_idx,
     }
 }
@@ -100,6 +104,7 @@ pub(crate) fn resolve_profile(
 pub(crate) fn resolve_na_profile(
     residue_idx: u32,
     color: [f32; 3],
+    alpha: f32,
     geo: &GeometryOptions,
 ) -> CrossSectionProfile {
     CrossSectionProfile {
@@ -108,7 +113,7 @@ pub(crate) fn resolve_na_profile(
         roundness: geo.na_roundness,
         radial_blend: 0.0,
         sheet_blend: 0.0,
-        color,
+        color: [color[0], color[1], color[2], alpha],
         residue_idx,
     }
 }
@@ -261,7 +266,7 @@ mod tests {
             roundness: 1.0,
             radial_blend: 0.0,
             sheet_blend: 0.0,
-            color: [1.0, 0.0, 0.0],
+            color: [1.0, 0.0, 0.0, 1.0],
             residue_idx: 0,
         };
         let mut verts = Vec::new();
@@ -309,7 +314,7 @@ mod tests {
             roundness: 1.0,
             radial_blend: 0.0,
             sheet_blend: 0.0,
-            color: [1.0, 0.0, 0.0],
+            color: [1.0, 0.0, 0.0, 1.0],
             residue_idx: 0,
         };
         let mut verts = Vec::new();
@@ -378,7 +383,7 @@ mod tests {
                 roundness,
                 radial_blend: 0.0,
                 sheet_blend: 0.0,
-                color: [1.0, 0.0, 0.0],
+                color: [1.0, 0.0, 0.0, 1.0],
                 residue_idx: 0,
             };
             let mut verts = Vec::new();

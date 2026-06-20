@@ -17,7 +17,7 @@ fn is_non_designable(residue_idx: u32) -> bool {
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
-    @location(2) color: vec3<f32>,
+    @location(2) color: vec4<f32>,
     @location(3) residue_idx: u32,
     @location(4) center_pos: vec3<f32>,
 };
@@ -26,7 +26,7 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) center_pos: vec3<f32>,
     @location(1) world_position: vec3<f32>,
-    @location(2) vertex_color: vec3<f32>,
+    @location(2) vertex_color: vec4<f32>,
     @location(3) @interpolate(flat) residue_idx: u32,
 };
 
@@ -68,9 +68,10 @@ fn fs_main(in: VertexOutput) -> FragOutput {
     let normal = normalize(in.world_position - in.center_pos);
     let view_dir = normalize(camera.position - in.world_position);
 
-    // Highlight
+    // Highlight (operates on rgb; the vertex alpha passes straight through)
+    let alpha = in.vertex_color.a;
     let hovered = camera.hovered_residue >= 0 && u32(camera.hovered_residue) == in.residue_idx;
-    let highlighted = apply_highlight(in.vertex_color, hovered, is_selected(in.residue_idx));
+    let highlighted = apply_highlight(in.vertex_color.rgb, hovered, is_selected(in.residue_idx));
     var base_color = apply_designability(highlighted.xyz, is_non_designable(in.residue_idx));
     let outline_factor = highlighted.w;
 
@@ -91,7 +92,7 @@ fn fs_main(in: VertexOutput) -> FragOutput {
     if (camera.debug_mode == 1u) {
         out.color = vec4<f32>(normal * 0.5 + 0.5, 1.0);
     } else {
-        out.color = vec4<f32>(final_color, 1.0);
+        out.color = vec4<f32>(final_color, alpha);
     }
     out.normal = vec4<f32>(normal, ambient_ratio);
     return out;

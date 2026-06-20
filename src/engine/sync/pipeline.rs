@@ -711,6 +711,7 @@ fn per_entity_colors(
         &display.backbone_color_scheme(),
         &display.backbone_palette(),
         entity_index,
+        display.overrides.provisional.unwrap_or(false),
     );
     if colors.is_empty() {
         None

@@ -291,7 +291,7 @@ mod tests {
             roundness: 0.0,
             radial_blend: 0.0,
             sheet_blend,
-            color: [0.5, 0.5, 0.5],
+            color: [0.5, 0.5, 0.5, 1.0],
             residue_idx: 0,
         }
     }

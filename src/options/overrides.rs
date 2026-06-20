@@ -162,6 +162,17 @@ pub struct DisplayOverrides {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub disulfide_style: Option<BondStyle>,
+
+    /// Render this entity as a flat semi-transparent gray preview.
+    ///
+    /// Host-driven transient state, not user-authored appearance: never
+    /// serialized into saved appearance and absent from the settings
+    /// schema. When `Some(true)` the entity's cartoon backbone forces a
+    /// constant gray at the configured preview alpha, ignoring its color
+    /// scheme.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub provisional: Option<bool>,
 }
 
 /// Classes of rendering work invalidated by an overrides diff.
@@ -262,6 +273,7 @@ impl DisplayOverrides {
             hbond_style: _,
             show_disulfides: _,
             disulfide_style: _,
+            provisional: _,
         } = self;
         Self {
             drawing_mode: self.drawing_mode.or(base.drawing_mode),
@@ -300,6 +312,7 @@ impl DisplayOverrides {
             hbond_style: self.hbond_style.or(base.hbond_style),
             show_disulfides: self.show_disulfides.or(base.show_disulfides),
             disulfide_style: self.disulfide_style.or(base.disulfide_style),
+            provisional: self.provisional.or(base.provisional),
         }
     }
 
@@ -336,6 +349,7 @@ impl DisplayOverrides {
             hbond_style: _,
             show_disulfides: _,
             disulfide_style: _,
+            provisional: _,
         } = self;
 
         let mut inv = RenderInvalidation::NONE;
@@ -355,6 +369,10 @@ impl DisplayOverrides {
         if self.color_scheme != new.color_scheme
             || self.palette_preset != new.palette_preset
             || self.palette_mode != new.palette_mode
+            // Provisional toggles the forced-gray + alpha baked into the
+            // cartoon vertex color, so it invalidates the same color/vertex
+            // data a scheme change does.
+            || self.provisional != new.provisional
         {
             inv |= RenderInvalidation::RE_COLOR
                 | RenderInvalidation::RE_MESH
@@ -514,6 +532,7 @@ impl DisplayOverrides {
             && self.hbond_style.is_none()
             && self.show_disulfides.is_none()
             && self.disulfide_style.is_none()
+            && self.provisional.is_none()
     }
 
     /// Produce a [`DisplayOptions`] with these overrides applied on top

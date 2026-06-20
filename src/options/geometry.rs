@@ -125,7 +125,7 @@ impl GeometryOptions {
     /// max buffer size. Returns `self` unchanged for small structures.
     ///
     /// The backbone vertex buffer scales as
-    /// `SPR x CSV x residues x 52 bytes/vertex` (with a 1.15x overhead
+    /// `SPR x CSV x residues x 56 bytes/vertex` (with a 1.15x overhead
     /// factor). For 5 000 residues at default settings (SPR = 8, CSV = 16)
     /// this is ~33 MB -- well within the 256 MB limit. When the estimate
     /// exceeds the limit this method progressively applies LOD tiers
@@ -138,7 +138,7 @@ impl GeometryOptions {
     #[must_use]
     pub fn clamped_for_residues(&self, total_residues: usize) -> Self {
         const MAX_BUFFER_BYTES: usize = 256 * 1024 * 1024;
-        const VERTEX_BYTES: usize = 52; // size_of::<BackboneVertex>()
+        const VERTEX_BYTES: usize = 56; // size_of::<BackboneVertex>()
         const OVERHEAD: f64 = 1.15;
 
         let est = |spr: usize, csv: usize| -> usize {

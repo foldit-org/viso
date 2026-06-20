@@ -173,8 +173,23 @@ pub(super) fn generate_entity_mesh(
     geometry: &GeometryOptions,
     per_chain_lod: Option<&[ChainLod]>,
 ) -> CachedEntityMesh {
-    let skip_backbone = entity.drawing_mode != DrawingMode::Cartoon;
     let topology = &entity.topology;
+
+    let provisional = display.overrides.provisional.unwrap_or(false);
+
+    // A provisional preview renders backbone-tube-only regardless of its
+    // drawing mode, so force the backbone branch on for a ghost; its
+    // sidechains and atoms are suppressed below.
+    let skip_backbone =
+        !provisional && entity.drawing_mode != DrawingMode::Cartoon;
+
+    // Provisional entities bake a preview alpha into every cartoon vertex;
+    // committed entities pack a fully opaque 1.0.
+    let cartoon_alpha = if provisional {
+        crate::options::score_color::PROVISIONAL_ALPHA
+    } else {
+        1.0
+    };
 
     let backbone_mesh = if skip_backbone {
         BackboneRenderer::generate_mesh_colored(
@@ -187,6 +202,7 @@ pub(super) fn generate_entity_mesh(
             None,
             None,
             None,
+            cartoon_alpha,
         )
     } else {
         let is_na = topology.is_nucleic_acid();
@@ -229,11 +245,18 @@ pub(super) fn generate_entity_mesh(
         let na_guides_ref =
             (!na_guides.is_empty()).then_some(na_guides.as_slice());
 
-        let ss_slice = entity
-            .ss_override
-            .as_deref()
-            .or_else(|| Some(topology.ss_types.as_slice()))
-            .filter(|s| !s.is_empty());
+        // A preview is an unsettled intermediate, so it renders as a plain
+        // tube rather than showing DSSP-derived secondary structure. Passing
+        // no SS makes the backbone generator fall back to all-coil per chain.
+        let ss_slice = if provisional {
+            None
+        } else {
+            entity
+                .ss_override
+                .as_deref()
+                .or_else(|| Some(topology.ss_types.as_slice()))
+                .filter(|s| !s.is_empty())
+        };
 
         BackboneRenderer::generate_mesh_colored(
             &protein_chains,
@@ -245,15 +268,17 @@ pub(super) fn generate_entity_mesh(
             na_colors_ref,
             na_seeds_ref,
             na_guides_ref,
+            cartoon_alpha,
         )
     };
 
     // Sidechains are also omitted when the entity's resolved
-    // `show_sidechains` is false, so a hidden entity contributes no
-    // capsule instances to the scene (the per-entity override is baked
-    // into the mesh here rather than gated at draw time).
+    // `show_sidechains` is false (a hidden entity contributes no capsule
+    // instances) or when the entity is provisional (a ghost is
+    // backbone-tube-only). The per-entity override is baked into the mesh
+    // here rather than gated at draw time.
     let (sidechain_instances, sidechain_instance_count) =
-        if skip_backbone || !display.show_sidechains() {
+        if skip_backbone || !display.show_sidechains() || provisional {
             (Vec::new(), 0)
         } else {
             generate_sidechain_bytes(
@@ -265,8 +290,27 @@ pub(super) fn generate_entity_mesh(
                 display,
             )
         };
-    let (bns, na, bns_atom_count) =
-        generate_non_backbone_bytes(entity, display, colors);
+    // A provisional ghost is backbone-tube-only, so it emits no
+    // ball-and-stick atoms/bonds or nucleic-acid geometry.
+    let (bns, na, bns_atom_count) = if provisional {
+        (
+            BallAndStickInstances {
+                sphere_instances: Vec::new(),
+                sphere_count: 0,
+                capsule_instances: Vec::new(),
+                capsule_count: 0,
+            },
+            NucleicAcidInstances {
+                stem_instances: Vec::new(),
+                stem_count: 0,
+                ring_instances: Vec::new(),
+                ring_count: 0,
+            },
+            0,
+        )
+    } else {
+        generate_non_backbone_bytes(entity, display, colors)
+    };
 
     let residue_count = if topology.is_protein() {
         topology

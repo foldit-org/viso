@@ -74,6 +74,7 @@ impl ChainRange {
 }
 
 /// Generate unified backbone mesh from protein and nucleic acid chains.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_mesh_colored(
     protein: &[crate::renderer::entity_topology::ProteinBackboneChain],
     na: &[crate::renderer::entity_topology::NaBackboneChain],
@@ -84,6 +85,7 @@ pub(crate) fn generate_mesh_colored(
     na_residue_colors: Option<&[[f32; 3]]>,
     na_seeds: Option<&[Option<Vec3>]>,
     na_guide_dirs: Option<&[Vec3]>,
+    alpha: f32,
 ) -> BackboneMeshOutput {
     let mut out = BackboneMeshOutput::default();
 
@@ -124,6 +126,7 @@ pub(crate) fn generate_mesh_colored(
                         ss_types[i],
                         global_residue_idx + i as u32,
                         color,
+                        alpha,
                         geo,
                     )
                 })
@@ -183,6 +186,7 @@ pub(crate) fn generate_mesh_colored(
                     resolve_na_profile(
                         global_residue_idx + i as u32,
                         color,
+                        alpha,
                         geo,
                     )
                 })

@@ -22,6 +22,14 @@
 const GOOD_THRESHOLD: f64 = -2.0;
 const BAD_THRESHOLD: f64 = 20.0;
 
+/// Flat RGB used for an entity rendered as a provisional preview, ignoring
+/// its color scheme.
+pub(crate) const PROVISIONAL_GRAY: [f32; 3] = [0.6, 0.6, 0.6];
+
+/// Vertex alpha baked into a provisional entity's cartoon tube (committed
+/// entities pack `1.0`). Matches the half-alpha preview ghost.
+pub(crate) const PROVISIONAL_ALPHA: f32 = 0.5;
+
 /// Absolute mode: map a per-residue energy (REU) to [0, 1] using fixed
 /// thresholds.
 fn score_to_t_absolute(score: f64) -> f32 {
@@ -52,10 +60,14 @@ pub(crate) fn compute_per_residue_colors_styled(
     scheme: &super::ColorScheme,
     palette: &super::palette::Palette,
     entity_index: usize,
+    provisional: bool,
 ) -> Vec<[f32; 3]> {
     use molex::SSType;
 
     let residue_count = ss_types.len().max(1);
+    if provisional {
+        return vec![PROVISIONAL_GRAY; residue_count];
+    }
     match scheme {
         super::ColorScheme::Entity => per_entity_color(
             entity_index,

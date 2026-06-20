@@ -71,13 +71,15 @@ use crate::util::hash::hash_vec3_slice_summary;
 
 // VERTEX FORMAT
 
-/// 52-byte backbone vertex, shared by tube and ribbon pipelines.
+/// 56-byte backbone vertex, shared by tube and ribbon pipelines. The
+/// color carries a 4th channel (alpha): `1.0` for committed entities and
+/// the preview alpha for provisional ones.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct BackboneVertex {
     pub(crate) position: [f32; 3],
     pub(crate) normal: [f32; 3],
-    pub(crate) color: [f32; 3],
+    pub(crate) color: [f32; 4],
     pub(crate) residue_idx: u32,
     pub(crate) center_pos: [f32; 3],
 }
@@ -99,18 +101,18 @@ pub(crate) fn backbone_vertex_buffer_layout(
                 shader_location: 1,
             },
             wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x3,
+                format: wgpu::VertexFormat::Float32x4,
                 offset: 24,
                 shader_location: 2,
             },
             wgpu::VertexAttribute {
                 format: wgpu::VertexFormat::Uint32,
-                offset: 36,
+                offset: 40,
                 shader_location: 3,
             },
             wgpu::VertexAttribute {
                 format: wgpu::VertexFormat::Float32x3,
-                offset: 40,
+                offset: 44,
                 shader_location: 4,
             },
         ],
@@ -396,6 +398,7 @@ impl BackboneRenderer {
 
     // -- Static mesh generation --
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn generate_mesh_colored(
         protein: &[ProteinBackboneChain],
         na: &[NaBackboneChain],
@@ -406,6 +409,7 @@ impl BackboneRenderer {
         na_residue_colors: Option<&[[f32; 3]]>,
         na_seeds: Option<&[Option<Vec3>]>,
         na_guide_dirs: Option<&[Vec3]>,
+        alpha: f32,
     ) -> BackboneMeshOutput {
         mesh::generate_mesh_colored(
             protein,
@@ -417,6 +421,7 @@ impl BackboneRenderer {
             na_residue_colors,
             na_seeds,
             na_guide_dirs,
+            alpha,
         )
     }
 }
