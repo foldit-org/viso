@@ -545,11 +545,11 @@ impl ConstraintSpecs {
     ) {
         let viewport = (gpu.context.config.width, gpu.context.config.height);
         // Views over each Cartoon-mode protein entity's stored ribbon anchors,
-        // shared by the clash endpoints (which may be backbone atoms reading the
-        // drawn-ribbon anchor). Sidechain endpoints ignore it (they take the
-        // sheet offset), and entities with no anchors yet are absent so those
-        // endpoints fall back to raw. Only built when something consumes it
-        // (clashes); empty otherwise.
+        // shared by the clash endpoints (which may be backbone atoms reading
+        // the drawn-ribbon anchor). Sidechain endpoints ignore it (they
+        // take the sheet offset), and entities with no anchors yet are
+        // absent so those endpoints fall back to raw. Only built when
+        // something consumes it (clashes); empty otherwise.
         let ribbons = if self.clash_specs.is_empty() {
             FxHashMap::default()
         } else {
