@@ -287,7 +287,7 @@ pub(crate) fn entity_summaries(engine: &VisoEngine) -> Vec<serde_json::Value> {
             };
             let chain_ids: Vec<String> = entity
                 .pdb_chain_id()
-                .map_or_else(Vec::new, |cid| vec![String::from(cid as char)]);
+                .map_or_else(Vec::new, |cid| vec![cid.to_string()]);
             let focused =
                 matches!(focus, Focus::Entity(eid) if eid.raw() == raw_id);
             let ovr = engine.entity_appearance(eid);
