@@ -196,3 +196,8 @@ gtk = "0.18"
 x11-dl = "2"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "topology"
+harness = false

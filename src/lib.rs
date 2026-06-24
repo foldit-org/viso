@@ -39,6 +39,10 @@ pub(crate) mod util;
 /// Runtime display, lighting, camera, and color options.
 pub mod options;
 
+/// Bench-only entry points. `#[doc(hidden)]`, not part of the public API.
+#[doc(hidden)]
+pub mod bench_api;
+
 // Animation (preset constructors only)
 pub use animation::transition::Transition;
 // Feature-gated
