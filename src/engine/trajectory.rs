@@ -149,7 +149,7 @@ pub(crate) fn pick_trajectory_target(
     })?;
     let protein = entity.as_protein()?;
     let indices = build_backbone_atom_indices(protein);
-    Some((entity.id(), protein.atoms.len(), indices))
+    Some((entity.id(), protein.columns.len(), indices))
 }
 
 /// Build the backbone atom index mapping from a [`ProteinEntity`].
@@ -165,14 +165,14 @@ pub(crate) fn build_backbone_atom_indices(
     let mut current_chain_indices: Vec<usize> = Vec::new();
 
     for res in &protein.residues {
-        let atoms_in_res = &protein.atoms[res.atom_range.clone()];
+        let names_in_res = &protein.columns.name[res.atom_range.clone()];
         let mut n_idx = None;
         let mut ca_idx = None;
         let mut c_idx = None;
 
-        for (local_offset, atom) in atoms_in_res.iter().enumerate() {
+        for (local_offset, atom_name) in names_in_res.iter().enumerate() {
             let global_idx = res.atom_range.start + local_offset;
-            let name = std::str::from_utf8(&atom.name).unwrap_or("").trim();
+            let name = std::str::from_utf8(atom_name).unwrap_or("").trim();
             match name {
                 "N" => n_idx = Some(global_idx),
                 "CA" => ca_idx = Some(global_idx),

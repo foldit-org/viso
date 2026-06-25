@@ -113,7 +113,7 @@ impl SyncPipeline {
             }
             scene
                 .positions
-                .insert_from_reference(id, &entity.positions());
+                .insert_from_reference(id, entity.positions());
 
             // New entity? Seed visibility from ambient-type defaults.
             if let std::collections::hash_map::Entry::Vacant(slot) =
@@ -511,7 +511,7 @@ impl SyncPipeline {
             .current
             .entities()
             .iter()
-            .map(|entity| (entity.id(), entity.positions()))
+            .map(|entity| (entity.id(), entity.positions().to_vec()))
             .collect();
         for (eid, target) in targets {
             let raw = eid.raw();
@@ -561,7 +561,7 @@ impl SyncPipeline {
         // host (the bug surfaces as a stationary protein during
         // wiggle/shake when no transition is queued).
         for entity in scene.current.entities() {
-            scene.positions.set(entity.id(), entity.positions());
+            scene.positions.set(entity.id(), entity.positions().to_vec());
         }
         Self::ensure_gpu_capacity_and_colors(scene, annotations, gpu);
         let flat_colors = scene.flat_cartoon_colors(annotations);

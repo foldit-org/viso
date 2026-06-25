@@ -272,7 +272,7 @@ impl VisoApp {
         let entity_id = entity.id();
         let _ = self.assembly.apply_edits(&[
             AssemblyEdit::RemoveEntity { entity: entity_id },
-            AssemblyEdit::AddEntity { entity },
+            AssemblyEdit::AddEntity { entity: Box::new(entity) },
         ]);
 
         engine.queue_entity_transition(raw_id, transition);

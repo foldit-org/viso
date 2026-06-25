@@ -160,14 +160,14 @@ pub(crate) fn regenerate_surfaces(
             continue;
         }
 
-        let positions = se.positions();
+        let positions = se.positions().to_vec();
         if positions.is_empty() {
             continue;
         }
         let radii: Vec<f32> = se
-            .atom_set()
+            .elements()
             .iter()
-            .map(|a| a.element.vdw_radius())
+            .map(molex::Element::vdw_radius)
             .collect();
 
         // Use the backbone palette so surface/cavity colors match the

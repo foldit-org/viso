@@ -17,15 +17,15 @@ use super::controller::CameraController;
 pub(crate) fn bounding_sphere_of(
     entity: &MoleculeEntity,
 ) -> Option<(Vec3, f32)> {
-    let atoms = entity.atom_set();
-    if atoms.is_empty() {
+    let positions = entity.positions();
+    if positions.is_empty() {
         return None;
     }
-    let n = atoms.len() as f32;
-    let centroid = atoms.iter().fold(Vec3::ZERO, |acc, a| acc + a.position) / n;
-    let radius = atoms
+    let n = positions.len() as f32;
+    let centroid = positions.iter().fold(Vec3::ZERO, |acc, p| acc + *p) / n;
+    let radius = positions
         .iter()
-        .map(|a| (a.position - centroid).length())
+        .map(|p| (*p - centroid).length())
         .fold(0.0f32, f32::max);
     Some((centroid, radius))
 }

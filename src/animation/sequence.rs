@@ -152,7 +152,7 @@ pub(crate) fn build_animation(
         let (changed, any_coord_change) = mutated_residues(a, b)?;
         if changed.is_empty() {
             if any_coord_change {
-                moved_only.push((id, b.positions()));
+                moved_only.push((id, b.positions().to_vec()));
             }
             continue;
         }
@@ -168,8 +168,8 @@ pub(crate) fn build_animation(
         mutated.push(Mutated {
             a_ranges: a_res.iter().map(|r| r.atom_range.clone()).collect(),
             b_ranges: b_res.iter().map(|r| r.atom_range.clone()).collect(),
-            a_pos: a.positions(),
-            b_pos: b.positions(),
+            a_pos: a.positions().to_vec(),
+            b_pos: b.positions().to_vec(),
             backbone_moved: backbone_moved(a, b),
             has_old_sidechain,
             has_new_sidechain,

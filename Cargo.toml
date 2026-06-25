@@ -1,6 +1,9 @@
 [workspace]
 members = ["crates/viso-ui", "xtask"]
 
+[patch.crates-io]
+molex = { path = "../molex" }
+
 [package]
 name = "viso"
 version = "0.3.6"

@@ -144,7 +144,7 @@ pub(crate) fn derive_topology(
                         .residues
                         .iter()
                         .map(|r| (r.name, r.atom_range.clone())),
-                    protein.atoms.len(),
+                    protein.columns.len(),
                 );
             EntityTopology {
                 molecule_type,
@@ -155,7 +155,7 @@ pub(crate) fn derive_topology(
                 na_residue_base_colors: Vec::new(),
                 na_guide_atom_indices: Vec::new(),
                 ss_types: ss.to_vec(),
-                atom_elements: atom_elements(&protein.atoms),
+                atom_elements: protein.columns.element.clone(),
                 atom_residue_index,
                 residue_names,
                 residue_atom_ranges,
@@ -166,7 +166,7 @@ pub(crate) fn derive_topology(
             let (residue_names, residue_atom_ranges, atom_residue_index) =
                 residue_tables(
                     na.residues.iter().map(|r| (r.name, r.atom_range.clone())),
-                    na.atoms.len(),
+                    na.columns.len(),
                 );
             EntityTopology {
                 molecule_type,
@@ -177,7 +177,7 @@ pub(crate) fn derive_topology(
                 na_residue_base_colors: na_residue_base_colors(na),
                 na_guide_atom_indices: na_guide_atom_indices(na, molecule_type),
                 ss_types: Vec::new(),
-                atom_elements: atom_elements(&na.atoms),
+                atom_elements: na.columns.element.clone(),
                 atom_residue_index,
                 residue_names,
                 residue_atom_ranges,
@@ -193,10 +193,10 @@ pub(crate) fn derive_topology(
             na_residue_base_colors: Vec::new(),
             na_guide_atom_indices: Vec::new(),
             ss_types: Vec::new(),
-            atom_elements: atom_elements(&sm.atoms),
-            atom_residue_index: vec![0; sm.atoms.len()],
+            atom_elements: sm.columns.element.clone(),
+            atom_residue_index: vec![0; sm.columns.len()],
             residue_names: vec![sm.residue_name],
-            residue_atom_ranges: std::iter::once(0..sm.atoms.len() as u32)
+            residue_atom_ranges: std::iter::once(0..sm.columns.len() as u32)
                 .collect(),
             bonds: sm.bonds.clone(),
         },
@@ -209,7 +209,7 @@ pub(crate) fn derive_topology(
             na_residue_base_colors: Vec::new(),
             na_guide_atom_indices: Vec::new(),
             ss_types: Vec::new(),
-            atom_elements: atom_elements(&bulk.atoms),
+            atom_elements: bulk.columns.element.clone(),
             atom_residue_index: Vec::new(),
             residue_names: Vec::new(),
             residue_atom_ranges: Vec::new(),
@@ -219,10 +219,6 @@ pub(crate) fn derive_topology(
 }
 
 // Builder helpers -- private derivation used only by derive_topology
-
-fn atom_elements(atoms: &[molex::Atom]) -> Vec<Element> {
-    atoms.iter().map(|a| a.element).collect()
-}
 
 /// Build `(residue_names, residue_atom_ranges, atom_residue_index)` from
 /// an iterator of `(name, atom_range)` residue metadata.
@@ -319,8 +315,7 @@ fn protein_sidechain_layout(
             .is_some_and(AminoAcid::is_hydrophobic);
         let res_idx_u32 = res_idx as u32;
         for atom_idx in (start + 4)..end {
-            let atom = &protein.atoms[atom_idx];
-            if atom.element == Element::H {
+            if protein.columns.element[atom_idx] == Element::H {
                 continue;
             }
             let layout_idx = atom_indices.len() as u32;
@@ -328,7 +323,8 @@ fn protein_sidechain_layout(
             residue_indices.push(res_idx_u32);
             hydrophobicity.push(is_hydrophobic);
             let _ = atom_to_layout.insert(atom_idx as u32, layout_idx);
-            let name = atom_name_string(atom.name).into_boxed_str();
+            let name =
+                atom_name_string(protein.columns.name[atom_idx]).into_boxed_str();
             let _ = atom_lookup
                 .entry(res_idx_u32)
                 .or_default()
@@ -512,7 +508,7 @@ fn na_guide_atom_indices(
         };
     let find = |range: Range<usize>, names: &[&[u8]]| -> Option<u32> {
         range
-            .filter(|&idx| names.contains(&trim_atom_name(&na.atoms[idx].name)))
+            .filter(|&idx| names.contains(&trim_atom_name(&na.columns.name[idx])))
             .map(|idx| idx as u32)
             .next()
     };
@@ -539,7 +535,7 @@ fn na_ring_topology(
         };
         let mut name_to_idx: FxHashMap<Vec<u8>, u32> = FxHashMap::default();
         for idx in residue.atom_range.clone() {
-            let trimmed = trim_atom_name(&na.atoms[idx].name);
+            let trimmed = trim_atom_name(&na.columns.name[idx]);
             let _ = name_to_idx.insert(trimmed.to_vec(), idx as u32);
         }
         let hex_ring: Option<[u32; 6]> = {
