@@ -253,7 +253,7 @@ impl SurfaceRebuildBody {
         // Generate density map meshes first
         for (map, threshold, color) in &density_jobs {
             let (v, i) =
-                density::generate_density_mesh(map, *threshold, *color, None);
+                density::generate_density_mesh(map, *threshold, *color);
             let base = all_verts.len() as u32;
             all_verts.extend(v);
             all_idxs.extend(i.iter().map(|&idx| idx + base));

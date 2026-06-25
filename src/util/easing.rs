@@ -7,15 +7,11 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum EasingFunction {
     /// Linear interpolation (no easing).
-    #[allow(dead_code)]
     Linear,
     /// Quadratic ease-in (slow start, fast end).
     QuadraticIn,
     /// Quadratic ease-out (fast start, slow end).
     QuadraticOut,
-    /// Square root ease-out (fast start, gradual slow).
-    #[allow(dead_code)]
-    SqrtOut,
     /// Cubic Hermite interpolation with configurable control points.
     /// Formula: c1·3t(1-t)² + c2·3(1-t)t² + t³
     CubicHermite {
@@ -51,7 +47,6 @@ impl EasingFunction {
                 let omt = 1.0 - t;
                 1.0 - omt * omt
             }
-            EasingFunction::SqrtOut => t.sqrt(),
             EasingFunction::CubicHermite { c1, c2 } => {
                 // f(t) = c0(1-t)³ + c1·3t(1-t)² + c2·3(1-t)t² + c3·t³
                 // where c0=0.0, c3=1.0
@@ -133,14 +128,6 @@ mod tests {
         assert_eq!(quad_out.evaluate(0.0), 0.0);
         assert_eq!(quad_out.evaluate(0.5), 0.75); // 1 - (1-0.5)² = 0.75
         assert_eq!(quad_out.evaluate(1.0), 1.0);
-    }
-
-    #[test]
-    fn test_sqrt_out() {
-        let sqrt_out = EasingFunction::SqrtOut;
-        assert_eq!(sqrt_out.evaluate(0.0), 0.0);
-        assert!((sqrt_out.evaluate(0.25) - 0.5).abs() < 1e-6); // sqrt(0.25) = 0.5
-        assert_eq!(sqrt_out.evaluate(1.0), 1.0);
     }
 
     #[test]

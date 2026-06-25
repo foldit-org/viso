@@ -248,12 +248,6 @@ impl BandRenderer {
         let _ = self.pass.write_instances(device, queue, &instances);
     }
 
-    /// Clear all bands
-    #[allow(dead_code)] // API surface, not yet called by engine
-    pub(crate) fn clear(&mut self) {
-        self.pass.instance_count = 0;
-    }
-
     /// GPU buffer sizes: `(label, used_bytes, allocated_bytes)`.
     pub(crate) fn buffer_info(&self) -> Vec<(&'static str, usize, usize)> {
         vec![self.pass.buffer_info("Band Capsules")]

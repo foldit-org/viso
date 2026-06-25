@@ -234,53 +234,6 @@ fn laplacian_smooth(
     }
 }
 
-/// Recompute per-vertex normals as the area-weighted average of
-/// adjacent face normals. Call after Laplacian smoothing to get
-/// normals consistent with the smoothed geometry.
-#[allow(dead_code)]
-fn recompute_normals(vertices: &mut [IsosurfaceVertex], indices: &[u32]) {
-    // Zero out normals
-    for v in vertices.iter_mut() {
-        v.normal = [0.0, 0.0, 0.0];
-    }
-
-    // Accumulate face normals (area-weighted via cross product magnitude)
-    for tri in indices.chunks_exact(3) {
-        let (ai, bi, ci) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
-        let a = vertices[ai].position;
-        let b = vertices[bi].position;
-        let c = vertices[ci].position;
-
-        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-        let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-        let nx = ab[1] * ac[2] - ab[2] * ac[1];
-        let ny = ab[2] * ac[0] - ab[0] * ac[2];
-        let nz = ab[0] * ac[1] - ab[1] * ac[0];
-
-        for &idx in tri {
-            let v = &mut vertices[idx as usize];
-            v.normal[0] += nx;
-            v.normal[1] += ny;
-            v.normal[2] += nz;
-        }
-    }
-
-    // Normalize
-    for v in vertices.iter_mut() {
-        let len = (v.normal[0] * v.normal[0]
-            + v.normal[1] * v.normal[1]
-            + v.normal[2] * v.normal[2])
-            .sqrt();
-        if len > 1e-10 {
-            v.normal[0] /= len;
-            v.normal[1] /= len;
-            v.normal[2] /= len;
-        } else {
-            v.normal = [0.0, 1.0, 0.0];
-        }
-    }
-}
-
 /// Process a single marching-cubes cell, appending triangles to the
 /// output buffers.
 fn process_cube(

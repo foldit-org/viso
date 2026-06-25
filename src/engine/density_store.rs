@@ -26,17 +26,12 @@ pub(crate) struct DensityEntry {
     pub(crate) color: [f32; 3],
     /// Mesh opacity (0.0 = fully transparent, 1.0 = opaque).
     pub(crate) opacity: f32,
-    /// Dirty generation counter (bumped on any parameter change).
-    pub(crate) generation: u64,
 }
 
 /// Manages all loaded density maps with dirty tracking.
 pub(crate) struct DensityStore {
     entries: Vec<(u32, DensityEntry)>,
     next_id: u32,
-    /// Last generation that was rendered (for dirty detection).
-    #[allow(dead_code)]
-    rendered_generation: u64,
 }
 
 impl DensityStore {
@@ -45,7 +40,6 @@ impl DensityStore {
         Self {
             entries: Vec::new(),
             next_id: 0,
-            rendered_generation: 0,
         }
     }
 
@@ -62,7 +56,6 @@ impl DensityStore {
                 visible: true,
                 color: DEFAULT_COLOR,
                 opacity: DEFAULT_OPACITY,
-                generation: 1,
             },
         ));
         id
@@ -76,7 +69,6 @@ impl DensityStore {
     }
 
     /// Get a density entry by ID.
-    #[allow(dead_code)]
     pub(crate) fn get(&self, id: u32) -> Option<&DensityEntry> {
         self.entries
             .iter()
@@ -84,15 +76,12 @@ impl DensityStore {
             .map(|(_, e)| e)
     }
 
-    /// Get a mutable density entry by ID, bumping its generation.
+    /// Get a mutable density entry by ID.
     fn get_mut(&mut self, id: u32) -> Option<&mut DensityEntry> {
         self.entries
             .iter_mut()
             .find(|(eid, _)| *eid == id)
-            .map(|(_, e)| {
-                e.generation += 1;
-                e
-            })
+            .map(|(_, e)| e)
     }
 
     /// Set the raw density threshold for a density map.
@@ -123,18 +112,6 @@ impl DensityStore {
         }
     }
 
-    /// Whether any density map has been modified since the last render.
-    #[allow(dead_code)]
-    pub(crate) fn is_dirty(&self) -> bool {
-        self.max_generation() > self.rendered_generation
-    }
-
-    /// Mark all current state as rendered.
-    #[allow(dead_code)]
-    pub(crate) fn mark_rendered(&mut self) {
-        self.rendered_generation = self.max_generation();
-    }
-
     /// All density entries (visible and hidden).
     pub(crate) fn all_entries(
         &self,
@@ -150,19 +127,5 @@ impl DensityStore {
             .iter()
             .filter(|(_, e)| e.visible)
             .map(|(id, e)| (*id, e))
-    }
-
-    /// Whether any density maps are loaded.
-    #[allow(dead_code)]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    fn max_generation(&self) -> u64 {
-        self.entries
-            .iter()
-            .map(|(_, e)| e.generation)
-            .max()
-            .unwrap_or(0)
     }
 }

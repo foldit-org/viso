@@ -55,10 +55,6 @@ impl BackboneMeshOutput {
     }
 }
 
-use std::hash::{Hash, Hasher};
-
-use rustc_hash::FxHasher;
-
 use crate::camera::frustum::Frustum;
 use crate::error::VisoError;
 use crate::gpu::dynamic_buffer::DynamicBuffer;
@@ -67,7 +63,6 @@ use crate::options::{ChainLod, GeometryOptions};
 use crate::renderer::draw_context::DrawBindGroups;
 use crate::renderer::entity_topology::{NaBackboneChain, ProteinBackboneChain};
 use crate::renderer::mesh::{create_mesh_pipeline, MeshPass, MeshPipelineDef};
-use crate::util::hash::hash_vec3_slice_summary;
 
 // VERTEX FORMAT
 
@@ -126,10 +121,8 @@ pub(crate) struct BackboneRenderer {
     tube_pass: MeshPass,
     ribbon_pass: MeshPass,
     vertex_buffer: DynamicBuffer,
-    last_hash: u64,
     cached_chains: Vec<ProteinBackboneChain>,
     cached_na_chains: Vec<NaBackboneChain>,
-    sheet_offsets: Vec<SheetOffset>,
     chain_ranges: Vec<ChainRange>,
     cached_lod_tiers: Vec<u8>,
 }
@@ -201,10 +194,8 @@ impl BackboneRenderer {
             tube_pass,
             ribbon_pass,
             vertex_buffer,
-            last_hash: combined_hash(protein, na),
             cached_chains: protein.to_vec(),
             cached_na_chains: na.to_vec(),
-            sheet_offsets: Vec::new(),
             chain_ranges: Vec::new(),
             cached_lod_tiers: Vec::new(),
         })
@@ -265,7 +256,6 @@ impl BackboneRenderer {
         ribbon_indices: &[u8],
         tube_index_count: u32,
         ribbon_index_count: u32,
-        sheet_offsets: Vec<SheetOffset>,
         chain_ranges: Vec<ChainRange>,
         cached_chains: &[ProteinBackboneChain],
         cached_na_chains: &[NaBackboneChain],
@@ -289,14 +279,11 @@ impl BackboneRenderer {
             ribbon_indices,
             ribbon_index_count,
         );
-        self.sheet_offsets = sheet_offsets;
         self.chain_ranges = chain_ranges;
         self.cached_chains.clear();
         self.cached_chains.extend_from_slice(cached_chains);
         self.cached_na_chains.clear();
         self.cached_na_chains.extend_from_slice(cached_na_chains);
-        self.last_hash =
-            combined_hash(&self.cached_chains, &self.cached_na_chains);
     }
 
     pub(crate) fn update_metadata(
@@ -308,8 +295,6 @@ impl BackboneRenderer {
         self.cached_chains.extend_from_slice(cached_chains);
         self.cached_na_chains.clear();
         self.cached_na_chains.extend_from_slice(cached_na_chains);
-        self.last_hash =
-            combined_hash(&self.cached_chains, &self.cached_na_chains);
     }
 
     pub(crate) fn apply_mesh(
@@ -338,7 +323,6 @@ impl BackboneRenderer {
                 mesh.ribbon_index_count,
             );
         }
-        self.sheet_offsets = mesh.sheet_offsets;
         self.chain_ranges = mesh.chain_ranges;
     }
 
@@ -439,22 +423,4 @@ fn new_buffer<T: bytemuck::Pod>(
     } else {
         DynamicBuffer::new_with_data(device, label, data, usage)
     }
-}
-
-fn combined_hash(
-    protein_chains: &[ProteinBackboneChain],
-    na_chains: &[NaBackboneChain],
-) -> u64 {
-    let mut h = FxHasher::default();
-    // Hash CA positions per protein chain -- sufficient to detect mesh
-    // rebuilds; N/C/O move alongside CA so CA alone is a reliable proxy.
-    protein_chains.len().hash(&mut h);
-    for chain in protein_chains {
-        hash_vec3_slice_summary(chain.ca(), &mut h);
-    }
-    na_chains.len().hash(&mut h);
-    for chain in na_chains {
-        hash_vec3_slice_summary(chain.p(), &mut h);
-    }
-    h.finish()
 }

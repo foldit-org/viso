@@ -177,7 +177,6 @@ impl GpuPipeline {
                 &prepared.backbone.ribbon_indices,
                 prepared.backbone.tube_index_count,
                 prepared.backbone.ribbon_index_count,
-                prepared.backbone.sheet_offsets.clone(),
                 prepared.backbone.chain_ranges.clone(),
                 scene.backbone_chains,
                 scene.na_chains,

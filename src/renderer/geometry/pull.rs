@@ -81,13 +81,6 @@ impl PullRenderer {
         }
     }
 
-    /// Clear the pull visualization
-    #[allow(dead_code)] // API surface, not yet called by engine
-    pub(crate) fn clear(&mut self) {
-        self.capsule_pass.instance_count = 0;
-        self.cone_pass.instance_count = 0;
-    }
-
     /// GPU buffer sizes: `(label, used_bytes, allocated_bytes)`.
     pub(crate) fn buffer_info(&self) -> Vec<(&'static str, usize, usize)> {
         vec![

@@ -36,6 +36,10 @@ fn molex_data_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../molex/benches/data")
 }
 
+#[expect(
+    clippy::panic,
+    reason = "bench setup; a missing/invalid fixture is a hard error"
+)]
 fn assembly_from_cif(path: &Path) -> Assembly {
     let text = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
@@ -76,7 +80,9 @@ fn bench_topology(c: &mut Criterion) {
             BenchmarkId::new("derive_topology", fx.name),
             &fx.assembly,
             |b, asm| {
-                b.iter(|| black_box(viso::bench_api::derive_topology_all(asm)))
+                b.iter(|| {
+                    black_box(viso::bench_api::derive_topology_all(asm));
+                });
             },
         );
         group.bench_with_input(

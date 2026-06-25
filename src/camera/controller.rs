@@ -198,14 +198,6 @@ impl CameraController {
         animating
     }
 
-    /// Check if camera is currently animating
-    #[allow(dead_code)]
-    pub(crate) fn is_animating(&self) -> bool {
-        self.target_focus_point.is_some()
-            || self.target_distance.is_some()
-            || self.target_bounding_radius.is_some()
-    }
-
     /// Toggle turntable auto-rotation. Captures the camera's current up vector
     /// as the spin axis when enabling.
     pub(crate) fn toggle_auto_rotate(&mut self) -> bool {
@@ -220,7 +212,6 @@ impl CameraController {
     }
 
     /// Whether auto-rotation is currently active.
-    #[allow(dead_code)]
     pub(crate) fn is_auto_rotating(&self) -> bool {
         self.auto_rotate_axis.is_some()
     }
@@ -418,24 +409,6 @@ impl CameraController {
         self.target_bounding_radius = None;
 
         self.update_camera_pos();
-    }
-
-    /// Convert screen delta (pixels) to world-space offset.
-    /// Uses camera orientation to map 2D mouse movement to 3D space.
-    #[allow(dead_code)]
-    pub(crate) fn screen_delta_to_world(
-        &self,
-        delta_x: f32,
-        delta_y: f32,
-    ) -> Vec3 {
-        // Scale factor based on distance (further = larger movements)
-        let scale = self.distance * 0.002;
-
-        // Use camera right/up vectors to convert 2D delta to 3D offset
-        let right = self.right();
-        let up = self.up();
-
-        right * (delta_x * scale) + up * (-delta_y * scale)
     }
 
     /// Unproject screen coordinates to a world-space point on a plane at the
