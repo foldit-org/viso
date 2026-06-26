@@ -1,9 +1,6 @@
 [workspace]
 members = ["crates/viso-ui", "xtask"]
 
-[patch.crates-io]
-molex = { path = "../molex" }
-
 [package]
 name = "viso"
 version = "0.3.6"
@@ -93,7 +90,7 @@ half = "2"
 naga_oil = "0.19"
 naga = "26"
 
-molex = "0.6.0"
+molex = "0.7.1"
 
 # Cross-platform Instant (delegates to performance.now() on WASM)
 web-time = "1"
