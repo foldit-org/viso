@@ -418,10 +418,9 @@ fn parse_and_load(
         let _ = engine.density_mut().load(map);
         Ok(())
     } else {
-        use molex::adapters::pdb::structure_file_to_entities;
-
-        let entities = structure_file_to_entities(std::path::Path::new(path))
-            .map_err(|e| format!("Parse error: {e}"))?;
+        let entities = molex::Assembly::from_file(std::path::Path::new(path))
+            .map_err(|e| format!("Parse error: {e}"))?
+            .into_entities();
         if entities.is_empty() {
             return Err("No entities found in file".into());
         }

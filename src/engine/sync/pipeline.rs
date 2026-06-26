@@ -561,7 +561,9 @@ impl SyncPipeline {
         // host (the bug surfaces as a stationary protein during
         // wiggle/shake when no transition is queued).
         for entity in scene.current.entities() {
-            scene.positions.set(entity.id(), entity.positions().to_vec());
+            scene
+                .positions
+                .set(entity.id(), entity.positions().to_vec());
         }
         Self::ensure_gpu_capacity_and_colors(scene, annotations, gpu);
         let flat_colors = scene.flat_cartoon_colors(annotations);

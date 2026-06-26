@@ -323,8 +323,8 @@ fn protein_sidechain_layout(
             residue_indices.push(res_idx_u32);
             hydrophobicity.push(is_hydrophobic);
             let _ = atom_to_layout.insert(atom_idx as u32, layout_idx);
-            let name =
-                atom_name_string(protein.columns.name[atom_idx]).into_boxed_str();
+            let name = atom_name_string(protein.columns.name[atom_idx])
+                .into_boxed_str();
             let _ = atom_lookup
                 .entry(res_idx_u32)
                 .or_default()
@@ -508,7 +508,9 @@ fn na_guide_atom_indices(
         };
     let find = |range: Range<usize>, names: &[&[u8]]| -> Option<u32> {
         range
-            .filter(|&idx| names.contains(&trim_atom_name(&na.columns.name[idx])))
+            .filter(|&idx| {
+                names.contains(&trim_atom_name(&na.columns.name[idx]))
+            })
             .map(|idx| idx as u32)
             .next()
     };

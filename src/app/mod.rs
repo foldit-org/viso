@@ -94,10 +94,9 @@ impl VisoApp {
     /// read or parsed.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn from_file(path: &str) -> Result<Self, VisoError> {
-        let entities = molex::adapters::pdb::structure_file_to_entities(
-            std::path::Path::new(path),
-        )
-        .map_err(|e| VisoError::StructureLoad(e.to_string()))?;
+        let entities = Assembly::from_file(std::path::Path::new(path))
+            .map_err(|e| VisoError::StructureLoad(e.to_string()))?
+            .into_entities();
         Ok(Self::from_entities(entities))
     }
 
@@ -272,7 +271,9 @@ impl VisoApp {
         let entity_id = entity.id();
         let _ = self.assembly.apply_edits(&[
             AssemblyEdit::RemoveEntity { entity: entity_id },
-            AssemblyEdit::AddEntity { entity: Box::new(entity) },
+            AssemblyEdit::AddEntity {
+                entity: Box::new(entity),
+            },
         ]);
 
         engine.queue_entity_transition(raw_id, transition);
@@ -435,17 +436,20 @@ fn parse_structure_bytes(
             let text = std::str::from_utf8(bytes).map_err(|e| {
                 VisoError::StructureLoad(format!("Invalid UTF-8 in CIF: {e}"))
             })?;
-            molex::adapters::cif::mmcif_str_to_entities(text)
+            Assembly::from_mmcif(text)
+                .map(Assembly::into_entities)
                 .map_err(|e| VisoError::StructureLoad(e.to_string()))
         }
         "pdb" | "ent" => {
             let text = std::str::from_utf8(bytes).map_err(|e| {
                 VisoError::StructureLoad(format!("Invalid UTF-8 in PDB: {e}"))
             })?;
-            molex::adapters::pdb::pdb_str_to_entities(text)
+            Assembly::from_pdb(text)
+                .map(Assembly::into_entities)
                 .map_err(|e| VisoError::StructureLoad(e.to_string()))
         }
-        "bcif" => molex::adapters::bcif::bcif_to_entities(bytes)
+        "bcif" => Assembly::from_bcif(bytes)
+            .map(Assembly::into_entities)
             .map_err(|e| VisoError::StructureLoad(e.to_string())),
         other => Err(VisoError::StructureLoad(format!(
             "Unsupported format '{other}'. Use 'cif', 'pdb', or 'bcif'."

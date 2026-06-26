@@ -441,20 +441,23 @@ pub(crate) fn parse_file_bytes(
         "cif" | "mmcif" => {
             let text = std::str::from_utf8(bytes)
                 .map_err(|e| format!("Invalid UTF-8 in CIF: {e}"))?;
-            let entities = molex::adapters::cif::mmcif_str_to_entities(text)
-                .map_err(|e| format!("CIF parse error: {e}"))?;
+            let entities = molex::Assembly::from_mmcif(text)
+                .map_err(|e| format!("CIF parse error: {e}"))?
+                .into_entities();
             Ok(ParsedFile::Structure(entities))
         }
         "pdb" | "ent" => {
             let text = std::str::from_utf8(bytes)
                 .map_err(|e| format!("Invalid UTF-8 in PDB: {e}"))?;
-            let entities = molex::adapters::pdb::pdb_str_to_entities(text)
-                .map_err(|e| format!("PDB parse error: {e}"))?;
+            let entities = molex::Assembly::from_pdb(text)
+                .map_err(|e| format!("PDB parse error: {e}"))?
+                .into_entities();
             Ok(ParsedFile::Structure(entities))
         }
         "bcif" => {
-            let entities = molex::adapters::bcif::bcif_to_entities(bytes)
-                .map_err(|e| format!("BCIF parse error: {e}"))?;
+            let entities = molex::Assembly::from_bcif(bytes)
+                .map_err(|e| format!("BCIF parse error: {e}"))?
+                .into_entities();
             Ok(ParsedFile::Structure(entities))
         }
         other => Err(format!(

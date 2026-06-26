@@ -43,8 +43,9 @@ fn molex_data_dir() -> PathBuf {
 fn assembly_from_cif(path: &Path) -> Assembly {
     let text = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    let entities = molex::adapters::cif::mmcif_str_to_entities(&text)
-        .unwrap_or_else(|e| panic!("parse {}: {e:?}", path.display()));
+    let entities = Assembly::from_mmcif(&text)
+        .unwrap_or_else(|e| panic!("parse {}: {e:?}", path.display()))
+        .into_entities();
     let mut assembly = Assembly::new(entities);
     // Load-realistic: the host runs recompute_ss before publishing to viso.
     assembly.recompute_ss();
