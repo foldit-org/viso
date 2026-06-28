@@ -7,7 +7,7 @@
 use crate::engine::focus::Focus;
 use crate::VisoEngine;
 
-pub(crate) mod dispatch;
+pub(crate) mod actions;
 
 // Panel layout model
 

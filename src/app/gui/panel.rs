@@ -11,7 +11,7 @@ use web_time::Instant;
 use winit::window::Window;
 
 use super::webview;
-use crate::bridge::dispatch::{self, UiHost};
+use crate::bridge::actions::{self, UiHost};
 use crate::bridge::{self, PanelAxis, UiAction};
 use crate::VisoEngine;
 
@@ -211,7 +211,7 @@ impl PanelController {
             webview: self.webview.as_ref(),
         };
         let Some(passthrough) =
-            dispatch::dispatch_engine_action(engine, action, &host)
+            actions::dispatch_engine_action(engine, action, &host)
         else {
             return;
         };
@@ -262,7 +262,7 @@ impl PanelController {
         let host = PanelHost {
             webview: self.webview.as_ref(),
         };
-        dispatch::push_scene_entities(engine, &host);
+        actions::push_scene_entities(engine, &host);
     }
 
     /// Push the current density map list to the webview.
@@ -270,7 +270,7 @@ impl PanelController {
         let host = PanelHost {
             webview: self.webview.as_ref(),
         };
-        dispatch::push_density_maps(engine, &host);
+        actions::push_density_maps(engine, &host);
     }
 }
 

@@ -14,7 +14,7 @@ pub use wasm_bindgen_rayon::init_thread_pool;
 use web_sys::HtmlCanvasElement;
 
 use crate::app::{SelectionStore, VisoApp};
-use crate::bridge::dispatch::{self, UiHost};
+use crate::bridge::actions::{self, UiHost};
 use crate::bridge::{self, PanelAxis, UiAction};
 use crate::gpu::RenderContext;
 use crate::input::KeyBindings;
@@ -421,7 +421,7 @@ fn handle_ipc_action(
 
     let passthrough = {
         let mut eng = engine.borrow_mut();
-        dispatch::dispatch_engine_action(&mut eng, action, &WebHost)
+        actions::dispatch_engine_action(&mut eng, action, &WebHost)
     };
     let Some(passthrough) = passthrough else {
         return;
@@ -556,7 +556,7 @@ fn push_schema_and_options(engine: &VisoEngine) {
 
 /// Push the scene entity list to viso-ui.
 fn push_scene_entities(engine: &VisoEngine) {
-    dispatch::push_scene_entities(engine, &WebHost);
+    actions::push_scene_entities(engine, &WebHost);
 }
 
 /// Push a load-status event to viso-ui.
