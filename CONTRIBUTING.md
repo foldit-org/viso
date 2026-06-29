@@ -56,8 +56,8 @@ Highlights:
 
 - `clippy::all`, `clippy::pedantic`, `clippy::nursery`, and `clippy::cargo` are
   all **denied** (at priority -1, so individual lints can override). Several
-  pedantic lints are explicitly allowed — e.g. the `cast_*` family, `float_cmp`,
-  `similar_names`, `use_self` — so pedantic is not denied without exception.
+  pedantic lints are explicitly allowed (e.g. the `cast_*` family, `float_cmp`,
+  `similar_names`, `use_self`), so pedantic is not denied without exception.
 - `missing_docs` is denied: every public item needs a doc comment.
 - `clippy::unwrap_used` and `clippy::expect_used` are denied in library code.
   Tests and `main.rs` may use `#[allow]` where appropriate.

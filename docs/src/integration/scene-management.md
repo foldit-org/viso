@@ -1,13 +1,13 @@
 # Scene Management
 
-Viso's structural state lives in `molex::Assembly`, which is owned by
-**your** application — not by viso. Viso is a pure consumer: you push
-the latest `Arc<Assembly>` to the engine via
-[`VisoEngine::set_assembly`], and the engine drains the snapshot on
-the next sync tick and rederives its render state.
+Viso's structural state lives in `molex::Assembly`, owned by **your**
+application, not by viso. Viso is a pure consumer: you push the latest
+`Arc<Assembly>` to the engine via [`VisoEngine::set_assembly`], and the
+engine drains the snapshot on the next sync tick and rederives its render
+state.
 
-There is no "group" abstraction in viso — every entity lives directly
-in the `Assembly` and is identified by an opaque `EntityId`.
+There is no "group" abstraction in viso. Every entity lives directly in
+the `Assembly` and is identified by an opaque `EntityId`.
 
 ## Pushing Assembly Snapshots
 
@@ -76,7 +76,7 @@ the molecular structure itself). Those live on
 ```rust
 // Animation behavior overrides (keyed by EntityId, not raw u32).
 let eid = engine.entity_id(raw_id).expect("known entity");
-engine.set_entity_behavior(eid, Transition::collapse_expand(/* ... */));
+engine.set_entity_behavior(eid, Transition::smooth());
 engine.clear_entity_behavior(eid);
 
 // Per-entity appearance overrides (drawing mode, color scheme,
@@ -88,9 +88,9 @@ engine.clear_entity_appearance(eid);
 ```
 
 `set_entity_appearance` diffs against the previous overrides and
-dispatches only the invalidations that matter — a `surface_kind`
-change triggers surface regeneration, a `color_scheme` change triggers
-color recomputation, and so on.
+dispatches only the invalidations that matter: a `surface_kind` change
+triggers surface regeneration, a `color_scheme` change triggers color
+recomputation, and so on.
 
 ## Looking Up Entities
 
@@ -109,36 +109,80 @@ for entity in engine.assembly().entities() {
 let n = engine.entity_count();
 ```
 
-`entity_id` is the canonical "boundary translator" — wire formats
-carry raw `u32` ids; viso-internal APIs use `EntityId`. Translate
-once at the boundary and pass `EntityId` through.
+`entity_id` is the canonical "boundary translator": wire formats carry
+raw `u32` ids; viso-internal APIs use `EntityId`. Translate once at the
+boundary and pass `EntityId` through.
 
 ## Focus
 
-Focus determines what the camera follows and what the user is
-"working on". It cycles through entities with `Tab`:
+Focus determines what the camera follows and what the user is "working
+on". It cycles through visible, focusable entities with `Tab`:
 
 ```rust
 pub enum Focus {
-    Session,             // All visible entities (default)
+    All,                 // All entities (default)
     Entity(EntityId),    // A specific entity
 }
 ```
 
 ```rust
-// Cycle: Session → Entity₁ → … → EntityN → Session
-engine.execute(VisoCommand::CycleFocus);
+// Cycle: All -> entity 1 -> ... -> entity N -> All
+engine.cycle_focus();
 
-// Focus a specific entity by raw id.
-engine.execute(VisoCommand::FocusEntity { id });
+// Focus a specific entity (by EntityId).
+engine.focus_entity(eid);
 
-// Reset to session-wide focus.
-engine.execute(VisoCommand::ResetFocus);
+// Reset to the all-entities view.
+engine.reset_focus();
+
+// Set focus without reframing the camera (host owns the reframe cadence).
+engine.set_focus(Focus::Entity(eid));
 
 // Read current focus state.
 let focus: Focus = engine.focus();
 let focused_entity: Option<EntityId> = engine.focused_entity();
+
+// The entities the Tab cycle steps through, without mutating focus.
+let focusable: Vec<EntityId> = engine.focusable_entities();
 ```
+
+`cycle_focus`, `focus_entity`, and `reset_focus` refit the camera;
+`set_focus` only records the value, leaving the reframe to the host.
+
+## Host Query API
+
+Foldit drives selection, pulls, and a residue-info panel through a set of
+read-only query methods on the engine. They translate between the GPU's
+flat residue space, structural references, and screen coordinates:
+
+```rust
+// Pick resolution: owning entity + entity-local residue + closest atom.
+let pick: Option<PickedResidueAtom> =
+    engine.picked_residue_atom(flat_residue, (x, y));
+
+// The heavy atom in a residue projecting closest to a screen point.
+let atom: Option<String> = engine.closest_atom_in_residue(residue, (x, y));
+
+// Flat residue index -> (raw entity id, entity-local residue).
+let owner: Option<(u32, u32)> = engine.flat_to_entity_residue(flat);
+
+// Resolve a structural atom reference to its current (interpolated) world
+// position.
+let pos: Option<Vec3> = engine.resolve_atom_position(residue, "CA");
+
+// Screen/world conversions (also see the Camera System chapter).
+let screen: Option<Vec2> = engine.world_to_screen(world);
+let world: Vec3 = engine.screen_to_world_at_depth(screen_pos, world_point);
+
+// Camera framing.
+let centroid: Option<Vec3> = engine.focus_centroid();
+engine.snap_camera_to_focus();
+engine.set_camera_pose(center, eye, up);
+```
+
+`resolve_atom_position`, `picked_residue_atom`, and `closest_atom_in_residue`
+read interpolated visual positions during animation, so they match what
+is on screen rather than the live target coordinates.
 
 ## What Happens During Sync
 

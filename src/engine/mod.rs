@@ -89,7 +89,7 @@ pub(crate) struct ConstraintSpecs {
 /// snapshot via [`VisoEngine::set_assembly`]. In standalone deployments
 /// ([`crate::VisoApp`]) the app plays the host role.
 ///
-/// The engine is never mutated directly for structural changes — the
+/// The engine is never mutated directly for structural changes; the
 /// host mutates its own `Assembly` and re-publishes via
 /// [`VisoEngine::set_assembly`]. Viso-side annotations (appearance
 /// overrides, behavior overrides, camera state) are mutated through
@@ -229,7 +229,7 @@ impl VisoEngine {
         }
     }
 
-    /// Core render — geometry, post-process, picking — targeting the
+    /// Core render (geometry, post-process, picking) targeting the
     /// given view. Returns the encoder so the caller can submit it.
     fn render_to_view(
         &mut self,
@@ -269,7 +269,7 @@ impl VisoEngine {
     }
 
     /// Render the scene to the given texture view (for embedding in
-    /// dioxus/etc). The caller owns the texture — no surface present
+    /// dioxus/etc). The caller owns the texture; no surface present
     /// happens.
     pub fn render_to_texture(&mut self, view: &wgpu::TextureView) {
         self.pre_render();
@@ -397,7 +397,7 @@ impl VisoEngine {
     /// surfaces, derived per-entity views), stage the new snapshot,
     /// and force a sync so subsequent calls (`set_ss_override`,
     /// camera pose, etc.) operate against synced state. Use this for
-    /// puzzle/file reloads — `set_assembly` alone leaves stale state
+    /// puzzle/file reloads; `set_assembly` alone leaves stale state
     /// from the previous topology around until the next `update`.
     pub fn replace_assembly(&mut self, assembly: Arc<Assembly>) {
         self.reset_scene_local_state();
@@ -428,7 +428,7 @@ impl VisoEngine {
 
     /// Snap (non-animated) version of [`Self::fit_camera_to_focus`].
     /// Sets `focus_point`, orbit `distance`, and `bounding_radius`
-    /// instantly to the molecule's bounding sphere — needed when a
+    /// instantly to the molecule's bounding sphere, needed when a
     /// caller follows up with a manual `set_camera_pose` and would
     /// otherwise leave `bounding_radius` (the fog driver) tied to the
     /// previous topology.
@@ -585,7 +585,7 @@ impl VisoEngine {
     /// clearing the scene.
     ///
     /// Also resets `last_seen_generation` to `u64::MAX` so that the
-    /// next Assembly snapshot triggers a sync unconditionally — the
+    /// next Assembly snapshot triggers a sync unconditionally: the
     /// app-side replace path rebuilds the assembly in one shot via
     /// `Assembly::new(...)`, which starts at generation 0 and would
     /// otherwise collide with a previously-observed

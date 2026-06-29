@@ -5,8 +5,8 @@ top of [wgpu](https://wgpu.rs/). It powers the molecular graphics in
 Foldit, rendering proteins, ligands, nucleic acids, and constraint visualizations at interactive frame
 rates.
 
-Viso is designed as an **embeddable library** -- you give it a window or
-surface, feed it structure data, and it produces a 2D texture. The host
+Viso is an **embeddable library**: you give it a window or surface, feed
+it structure data, and it produces a 2D texture. The host
 decides what to do with that texture: display it in a winit window, paint it
 onto an HTML canvas, write it to a PNG, or drop it into a dioxus/egui
 texture slot.
@@ -26,22 +26,22 @@ Viewer::builder()
 **Rendering**
 
 - Ray-marched impostors for pixel-perfect spheres and capsules at any zoom
-- Post-processing pipeline -- SSAO, bloom, FXAA, depth-based outlines, fog, tone mapping
+- Post-processing pipeline: SSAO, bloom, FXAA, depth-based outlines, fog, tone mapping
 
 **Interaction**
 
 - Arcball camera with animated transitions, panning, zoom, and auto-rotate
-- GPU picking -- click to select residues, double-click for SS segments, triple-click for chains, shift-click for multi-select
+- GPU picking: click to select residues, double-click for SS segments, triple-click for chains, shift-click for multi-select
 
 **Animation**
 
-- Smooth interpolation, cascading reveals, collapse/expand mutations
-- Per-entity targeted animation with configurable behaviors
+- Snap, smooth (cubic-hermite), and cascade transitions
+- Per-entity targeted animation with behavior overrides
 
 **Performance**
 
-- Background mesh generation on a dedicated thread with triple-buffered results
-- Per-entity mesh caching -- only changed entities are regenerated
+- Background mesh generation on a worker thread with triple-buffered results
+- Per-entity mesh caching: only changed entities are regenerated
 - Lock-free communication between main and background threads
 
 **Configuration**
@@ -58,7 +58,7 @@ File (.cif/.pdb/.bcif)  ──or──  Vec<MoleculeEntity>
  molex::adapters ──▶ Vec<MoleculeEntity>◄─┘
         │
         ▼
- molex::Assembly  (owned by your application — e.g. foldit)
+ molex::Assembly  (owned by your application, e.g. foldit)
         │  engine.set_assembly(Arc::new(assembly.clone()))
         ▼
  Scene + EntityAnnotations  (engine-side derived state,
@@ -80,20 +80,20 @@ For the full architecture, see [Architecture Overview](./architecture/overview.m
 
 **Embed viso in your application:**
 
-- [Quick Start](./getting-started/quick-start.md) -- standalone viewer walkthrough
-- [Engine Lifecycle](./integration/engine-lifecycle.md) -- creation, initialization, shutdown
-- [The Render Loop](./integration/render-loop.md) -- per-frame sequence
-- [Handling Input](./integration/handling-input.md) -- mouse and keyboard wiring
+- [Quick Start](./getting-started/quick-start.md): standalone viewer walkthrough
+- [Engine Lifecycle](./integration/engine-lifecycle.md): creation, initialization, shutdown
+- [The Render Loop](./integration/render-loop.md): per-frame sequence
+- [Handling Input](./integration/handling-input.md): mouse and keyboard wiring
 
 **Understand how Foldit uses viso:**
 
-- [Scene Management](./integration/scene-management.md) -- Assembly, entities, focus
-- [Dynamic Structure Updates](./integration/dynamic-updates.md) -- Rosetta and ML integration
-- [Options and Presets](./configuration/options-and-presets.md) -- TOML configuration
+- [Scene Management](./integration/scene-management.md): Assembly, entities, focus
+- [Dynamic Structure Updates](./integration/dynamic-updates.md): Rosetta and ML integration
+- [Options and Presets](./configuration/options-and-presets.md): TOML configuration
 
 **Dig into viso internals:**
 
-- [Architecture Overview](./architecture/overview.md) -- system diagram and data flow
-- [Rendering Pipeline](./deep-dives/rendering-pipeline.md) -- geometry pass and post-processing
-- [Background Scene Processing](./deep-dives/background-processing.md) -- threading model
-- [Animation System](./deep-dives/animation-system.md) -- transitions, behaviors, and interpolation
+- [Architecture Overview](./architecture/overview.md): system diagram and data flow
+- [Rendering Pipeline](./deep-dives/rendering-pipeline.md): geometry pass and post-processing
+- [Background Scene Processing](./deep-dives/background-processing.md): threading model
+- [Animation System](./deep-dives/animation-system.md): transitions, behaviors, interpolation

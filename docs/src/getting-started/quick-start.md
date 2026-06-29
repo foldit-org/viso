@@ -1,10 +1,10 @@
 # Quick Start
 
 Viso is a library first. With no feature flags enabled, it gives you
-`VisoEngine` — a self-contained rendering engine you embed in your own
-event loop. The optional `viewer` feature adds a standalone winit
-window for quick prototyping; `gui` adds an embedded webview options
-panel; `binary` (default) builds the CLI.
+`VisoEngine`, a self-contained rendering engine you embed in your own
+event loop. The optional `viewer` feature adds a standalone winit window
+for quick prototyping; `gui` adds an embedded webview options panel;
+`binary` (default) builds the CLI.
 
 ## Using Viso as a Library
 
@@ -76,30 +76,36 @@ The engine handles background mesh generation, animation, and the full
 post-processing pipeline internally. You own the event loop and the
 window.
 
-### Input (Optional)
+### Input
 
-`InputProcessor` is a convenience layer that translates raw input
-events into `VisoCommand` values. You can use it or wire commands
-directly:
+The host decodes platform events and calls typed engine methods. Pointer
+and scroll feed in directly; the button feed returns a classified
+`ClickEvent` you turn into a selection change:
 
 ```rust
-use viso::{InputProcessor, InputEvent};
+engine.feed_pointer_motion(x, y);
+engine.feed_scroll(delta);
 
-let mut input = InputProcessor::new();
-
-// In your event handler:
-let event = InputEvent::CursorMoved { x, y };
-if let Some(cmd) = input.handle_event(event, engine.hovered_target()) {
-    let _ = engine.execute(cmd);
+if let Some(click) = engine.feed_pointer_button(button, pressed) {
+    match viso::classify_click_for_selection(&click) {
+        viso::ClickSelectionAction::Clear => store.clear(),
+        viso::ClickSelectionAction::Replace(r) => store.replace(r),
+        viso::ClickSelectionAction::Toggle(r) => store.toggle(r),
+    }
+    engine.set_selection(&store.as_btreemap());
 }
 ```
 
+Keyboard goes through a `KeyBindings` table dispatched with
+`bindings.dispatch(key_str, &mut engine)`. See
+[Handling Input](../integration/handling-input.md) for the full wiring.
+
 ## Standalone Viewer (separate use case)
 
-If you want to run viso *as* a standalone application — not embed it
-in your own library — there's a built-in `Viewer` for quick
-prototyping. This is a separate use case from library embedding;
-library users should not enable these features.
+If you want to run viso *as* a standalone application (not embed it in
+your own library), there's a built-in `Viewer` for quick prototyping.
+This is a separate use case from library embedding; library users should
+not enable these features.
 
 ```toml
 [dependencies]
@@ -119,11 +125,11 @@ Viewer::builder()
     .run()?;
 ```
 
-Internally, the standalone viewer uses a helper called `VisoApp` to
-own its own `Assembly`. **`VisoApp` is not part of the library API**
-— it exists solely so viso can be its own host when run standalone.
-Library consumers own their own `molex::Assembly` and call
-`engine.set_assembly` directly, never going through `VisoApp`.
+Internally, the standalone viewer uses a helper called `VisoApp` to own
+its own `Assembly`. **`VisoApp` is not part of the library API**; it
+exists solely so viso can be its own host when run standalone. Library
+consumers own their own `molex::Assembly` and call `engine.set_assembly`
+directly, never going through `VisoApp`.
 
 ### Running the CLI
 

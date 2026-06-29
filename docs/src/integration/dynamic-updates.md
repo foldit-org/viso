@@ -1,8 +1,8 @@
 # Dynamic Structure Updates
 
-Viso is designed for live manipulation — structures can be updated
-mid-session by computational backends (Rosetta energy minimization,
-ML structure prediction) or user actions (mutations, drag operations).
+Viso supports live manipulation: structures can be updated mid-session
+by computational backends (Rosetta energy minimization, ML structure
+prediction) or user actions (mutations, drag operations).
 
 All structural mutations happen on **your** `molex::Assembly`. After
 each batch of changes, push the new snapshot to the engine via
@@ -54,13 +54,10 @@ cleared):
 ```rust
 let eid = engine.entity_id(raw_id).expect("known entity");
 
-engine.set_entity_behavior(eid, Transition::collapse_expand(
-    Duration::from_millis(200),
-    Duration::from_millis(300),
-));
+engine.set_entity_behavior(eid, Transition::smooth());
 
-// Subsequent re-publishes that touch this entity will use
-// collapse_expand instead of the default snap.
+// Subsequent re-publishes that touch this entity will use the
+// override instead of the default transition.
 engine.set_assembly(Arc::new(assembly.clone()));
 
 // Revert to default:
@@ -80,26 +77,14 @@ Transition::snap()
 // Standard smooth interpolation (300ms cubic-hermite ease-out).
 Transition::smooth()
 
-// Two-phase: sidechains collapse to CA, then expand. For mutations.
-Transition::collapse_expand(
-    Duration::from_millis(300),
-    Duration::from_millis(300),
+// Staggered per-residue wave (quadratic-out).
+Transition::cascade(
+    Duration::from_millis(500),
+    Duration::from_millis(5),
 )
 
-// Two-phase: backbone moves first with sidechains hidden, then
-// sidechains expand into place.
-Transition::backbone_then_expand(
-    Duration::from_millis(400),
-    Duration::from_millis(600),
-)
-
-// Builder flags
-Transition::collapse_expand(
-    Duration::from_millis(200),
-    Duration::from_millis(300),
-)
-    .allowing_size_change()
-    .suppressing_initial_sidechains()
+// Allow backbone size changes (residue mutations).
+Transition::smooth().allowing_size_change()
 ```
 
 See [Animation System](../deep-dives/animation-system.md) for details
@@ -114,9 +99,10 @@ resets. This provides responsive feedback during rapid update cycles
 
 ## Constraint Visualization (Bands and Pulls)
 
-Bands and pulls are not commands — they are stored constraint specs
-that the engine resolves to world-space positions every frame so they
-auto-track animated atoms.
+Bands and pulls are not commands; they are stored constraint specs that
+the engine resolves to world-space positions every frame so they
+auto-track animated atoms. Steric clash arcs and exposed-hydrophobic
+markers work the same way.
 
 ### Bands
 
@@ -183,3 +169,57 @@ engine.update_pull(None); // clear when drag ends
 
 The engine resolves stored specs to world-space positions every frame,
 so bands and pulls track animated atoms automatically.
+
+### Clash Arcs
+
+Steric clashes render as an electric arc between two atoms. A `ClashInfo`
+names each atom per-entity (an entity id plus an entity-local residue and
+PDB atom name) rather than by flat residue index:
+
+```rust
+use viso::{ClashEndpoint, ClashInfo};
+
+let clash = ClashInfo {
+    a: ClashEndpoint { entity: eid_a, residue: 12, atom_name: "CB".into() },
+    b: ClashEndpoint { entity: eid_b, residue: 40, atom_name: "CG".into() },
+    severity: 0.8, // drives emissive intensity and pulse brightness
+};
+
+engine.update_clashes(vec![clash]); // replaces the previous clash set
+```
+
+### Exposed Hydrophobics
+
+Flagged exposed-hydrophobic residues render as a "grease bead" at the
+sidechain anchor (CB if present, else the sidechain centroid, else CA).
+An `ExposedHydrophobicInfo` names the residue per-entity:
+
+```rust
+use viso::ExposedHydrophobicInfo;
+
+engine.update_exposed_hydrophobics(vec![ExposedHydrophobicInfo {
+    entity: eid,
+    residue: 23,
+}]);
+```
+
+Both `update_clashes` and `update_exposed_hydrophobics` replace the
+previous set and re-resolve immediately; the engine re-resolves their
+anchors every frame so the markers track animated atoms.
+
+## Host-Supplied Void Field
+
+A host can push a precomputed void distance field to be meshed as a
+smooth blob alongside detected cavities:
+
+```rust
+engine.set_external_void_field(dims, origin, spacing, phi, threshold);
+```
+
+`phi` is a flat row-major scalar grid (`phi[x*ny*nz + y*nz + z]`) in
+marching-cubes polarity: high at void centers, near zero at atom walls
+and exterior. It is meshed at the positive `threshold` into a blob that
+carries the same cavity tint and breathing as a detected cavity. An empty
+`phi` (or any zero dimension) clears the field. Meshing runs on the
+background worker, so the result appears on the next frame after it
+completes.

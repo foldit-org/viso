@@ -57,9 +57,9 @@ for general visualization.
 ### Secondary Structure
 
 Colors residues by their computed secondary structure type:
-- **Alpha helix** — distinct helix color
-- **Beta sheet** — distinct sheet color
-- **Coil/Loop** — neutral color
+- **Alpha helix**: distinct helix color
+- **Beta sheet**: distinct sheet color
+- **Coil/Loop**: neutral color
 
 Secondary structure is computed by `molex` (DSSP) by default. Per-entity
 overrides via `engine.set_ss_override(id, ss_types)`.
@@ -73,7 +73,7 @@ Colors residues by per-residue energy values (e.g. from Rosetta).
 
 ### ResidueIndex
 
-N-to-C gradient per chain — useful for sequence-position visualization.
+N-to-C gradient per chain; useful for sequence-position visualization.
 
 ### BFactor / Hydrophobicity
 
@@ -88,7 +88,7 @@ Single uniform color drawn from the first stop of the active palette.
 ```rust
 pub enum SidechainColorMode {
     Hydrophobicity,
-    Backbone,    // default — match the backbone color of the residue
+    Backbone,    // default: match the backbone color of the residue
 }
 ```
 
@@ -101,8 +101,8 @@ visually rather than as an independent layer.
 ### Hydrophobicity
 
 Hydrophobic / hydrophilic dichotomy:
-- **Hydrophobic** — blue (default: `[0.3, 0.5, 0.9]`)
-- **Hydrophilic** — orange (default: `[0.95, 0.6, 0.2]`)
+- **Hydrophobic**: blue (default: `[0.3, 0.5, 0.9]`)
+- **Hydrophilic**: orange (default: `[0.95, 0.6, 0.2]`)
 
 Configurable via `ColorOptions::hydrophobic_sidechain` /
 `hydrophilic_sidechain`.
@@ -112,7 +112,7 @@ Configurable via `ColorOptions::hydrophobic_sidechain` /
 ```rust
 pub enum NaColorMode {
     Uniform,
-    BaseColor,   // default — color each backbone segment by its base
+    BaseColor,   // default: color each backbone segment by its base
 }
 ```
 
@@ -146,19 +146,19 @@ colors in the prepared scene. During animation, the renderers
 interpolate between the old and new colors using the same easing
 function as the backbone position interpolation.
 
-Color changes are smooth — residues don't suddenly flash to new colors
-but transition over the animation duration.
+Color changes interpolate over the animation duration rather than
+snapping to the new colors in a single frame.
 
 ## How Colors Flow Through the Pipeline
 
-1. **Scene sync** — `DisplayOptions`, `DisplayOverrides`, and
+1. **Scene sync**: `DisplayOptions`, `DisplayOverrides`, and
    `ColorOptions` are sent to the background processor as part of the
    `FullRebuild` request.
-2. **Background thread** — during mesh generation, colors are computed
-   per-residue based on the resolved color scheme and palette and
-   baked into vertex / instance buffers.
-3. **GPU upload** — color buffers are uploaded to the GPU as part of
-   the prepared rebuild.
-4. **Rendering** — shaders read per-residue colors directly, with
+2. **Background thread**: during mesh generation, colors are computed
+   per-residue from the resolved color scheme and palette and baked into
+   vertex / instance buffers.
+3. **GPU upload**: color buffers are uploaded to the GPU as part of the
+   prepared rebuild.
+4. **Rendering**: shaders read per-residue colors directly, with
    selection highlighting applied as an overlay in the fragment shader
    via the `SelectionBuffer` bit-array.

@@ -1,20 +1,19 @@
 # Architecture Overview
 
-This chapter provides a high-level view of viso's architecture: how
-subsystems relate to each other, how data flows from file to screen,
-and how threading is organized.
+How viso's subsystems fit together: the engine's components, the path
+data takes from file to screen, and the threading model.
 
 ## System Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Application Layer                          │
-│  (your application — e.g. foldit)                               │
+│  (your application, e.g. foldit)                                │
 │                                                                 │
 │  Owns the authoritative `molex::Assembly`. All structural       │
 │  mutations push a new Arc<Assembly> via engine.set_assembly.    │
 │                                                                 │
-│  winit events ──► InputProcessor ──► VisoCommand ──► engine     │
+│  winit events ──► engine.feed_* / KeyBindings::dispatch         │
 └──────────────────────────────┬──────────────────────────────────┘
                                │ engine.set_assembly(Arc<Assembly>)
                                ▼
@@ -51,8 +50,10 @@ and how threading is organized.
 │  │  ├─ SidechainRenderer        ├─ Composite                 │  │
 │  │  ├─ BondRenderer             └─ FXAA                      │  │
 │  │  ├─ BandRenderer                                          │  │
-│  │  ├─ PullRenderer             ShaderComposer:              │  │
-│  │  ├─ BallAndStickRenderer     └─ naga_oil composition      │  │
+│  │  ├─ ClashArcRenderer         ShaderComposer:              │  │
+│  │  ├─ GreaseBeadRenderer       └─ naga_oil composition      │  │
+│  │  ├─ PullRenderer                                          │  │
+│  │  ├─ BallAndStickRenderer                                  │  │
 │  │  ├─ NucleicAcidRenderer                                   │  │
 │  │  └─ IsosurfaceRenderer                                    │  │
 │  └───────────────────────────────────────────────────────────┘  │
@@ -208,7 +209,8 @@ caller-owned texture view).
 
 ## Threading Model
 
-Viso uses three threads with lock-free communication:
+Viso uses one background worker alongside the main thread, with lock-free
+communication:
 
 ### Main Thread
 
@@ -217,8 +219,8 @@ Owns all GPU resources and runs the render loop:
 - Processing input events (mouse, keyboard, IPC)
 - Draining the pending `Assembly` slot for new snapshots
 - Running animation per frame
-- Submitting scene requests to the background thread (non-blocking)
-- Picking up completed meshes from the triple buffer (non-blocking)
+- Submitting scene requests to the worker (non-blocking)
+- Picking up completed meshes from the triple buffers (non-blocking)
 - Uploading data to the GPU
 - Executing the render pipeline
 - Initiating GPU picking readback and resolving completed reads
@@ -226,31 +228,30 @@ Owns all GPU resources and runs the render loop:
 The main thread **never blocks**. If meshes aren't ready, it renders
 the previous frame's data.
 
-### Background Mesh Thread
+### Background Scene-Processor Worker
 
-Owns the per-entity mesh cache and performs CPU-intensive work:
+A single worker thread owns the per-entity mesh cache and performs all
+CPU-intensive generation:
 
 - Receiving scene requests via `mpsc::Receiver` (blocks when idle)
-- Generating backbone, sidechain, ball-and-stick, and nucleic acid
+- Generating backbone, sidechain, ball-and-stick, and nucleic-acid
   meshes
+- Regenerating isosurface meshes (Gaussian / SES / cavity / density /
+  void field) on the same worker via `SceneRequest::SurfaceRebuild`
 - Maintaining a per-entity cache keyed on `mesh_version`
-- Writing results to a triple buffer (non-blocking)
+- Writing each result kind to its own triple buffer (non-blocking)
 
-### Background Surface Thread
-
-A short-lived worker spun up to regenerate isosurface meshes
-(Gaussian / SES / cavity surfaces) when surface options change. Sends
-results back through an `mpsc` channel that the main thread polls.
+There is no separate surface thread; surface regeneration shares this
+worker and returns a `PreparedSurface` over a triple buffer.
 
 ### Lock-Free Bridges
 
-| Mechanism                | Direction          | Semantics                                           |
-| ------------------------ | ------------------ | --------------------------------------------------- |
-| `triple_buffer` (asm)    | Host → Main        | Latest `Arc<Assembly>` (non-blocking read)          |
-| `mpsc::channel`          | Main → Mesh        | Submit scene requests (non-blocking send)           |
-| `triple_buffer` (rebuild)| Mesh → Main        | Latest `PreparedRebuild` (non-blocking read)        |
-| `triple_buffer` (anim)   | Mesh → Main        | Latest `PreparedAnimationFrame` (non-blocking read) |
-| `mpsc::channel`          | Surface → Main     | Density isosurface meshes (non-blocking poll)       |
+| Mechanism                  | Direction        | Semantics                                       |
+| -------------------------- | ---------------- | ----------------------------------------------- |
+| `mpsc::channel`            | Main to worker   | Submit scene requests (non-blocking send)       |
+| `triple_buffer` (rebuild)  | Worker to main   | Latest `PreparedRebuild` (non-blocking read)    |
+| `triple_buffer` (anim)     | Worker to main   | Latest `PreparedRebuild` (non-blocking read)    |
+| `triple_buffer` (surface)  | Worker to main   | Latest `PreparedSurface` (non-blocking read)    |
 
 Triple buffers guarantee:
 
@@ -282,7 +283,8 @@ viso/src/
 │   ├── annotations.rs  # EntityAnnotations: focus, visibility, behaviors,
 │   │                   # appearance, scores, SS, surfaces
 │   ├── bootstrap.rs    # GPU init + VisoEngine::new + FrameTiming
-│   ├── command.rs      # VisoCommand + payload types (BandInfo, PullInfo, …)
+│   ├── command.rs      # Constraint payload types (AtomRef, BandInfo,
+│   │                   # ClashInfo, ExposedHydrophobicInfo, PullInfo)
 │   ├── constraint.rs   # Band/pull resolution
 │   ├── culling.rs      # Frustum culling
 │   ├── density.rs      # Density map loading + isosurface integration
@@ -300,7 +302,7 @@ viso/src/
 ├── error.rs            # VisoError
 ├── gpu/                # wgpu device init, dynamic buffers, lighting,
 │                       # shader composition, residue color buffer
-├── input/              # Raw events → VisoCommand
+├── input/              # Pointer/key intake types: ClickEvent, KeyBindings
 ├── options/            # TOML-serializable runtime options + score color
 ├── renderer/           # GPU rendering pipeline
 │   ├── mod.rs          # PipelineLayouts, Renderers, GeometryPassInput
@@ -314,7 +316,7 @@ viso/src/
 │   ├── picking/        # GPU picking + PickingSystem + PickTarget + PickMap
 │   ├── pipeline/       # Background mesh-gen pipeline
 │   │   ├── prepared.rs # SceneRequest, PreparedRebuild,
-│   │   │               # PreparedAnimationFrame
+│   │   │               # SurfaceRebuildBody, PreparedSurface
 │   │   ├── mesh_gen.rs # Per-entity / per-frame mesh generation
 │   │   ├── mesh_concat.rs # Merge per-entity meshes
 │   │   └── processor.rs   # Background thread + cache
@@ -374,7 +376,7 @@ instead of mesh-based spheres and cylinders:
 ### Why a Host-Owned Assembly?
 
 `molex::Assembly` belongs to molex; viso just renders it. The host
-application — typically `foldit` — owns the authoritative
+application (typically `foldit`) owns the authoritative
 `Assembly` because it also drives Rosetta and ML backends and needs
 to mutate the assembly in response to their results. Viso never
 mutates the structural state itself; the host pushes the latest
@@ -386,6 +388,6 @@ channels or publishers leak out of the engine.
 When viso runs as a standalone application (`cargo run -p viso`,
 `feature = "viewer" / "gui" / "web"`), the in-tree helper `VisoApp`
 plays the host role for viso itself. `VisoApp` is purely an internal
-standalone-deployment helper — it is feature-gated and is **not** part
+standalone-deployment helper: it is feature-gated and is **not** part
 of the library's public surface. Library consumers own their own
 `Assembly` and call `engine.set_assembly` directly.

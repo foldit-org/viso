@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Rust** (stable, 1.80+)
-- **A GPU with WebGPU support** -- Metal (macOS), Vulkan (Linux/Windows), or DX12 (Windows)
+- **A GPU with WebGPU support**: Metal (macOS), Vulkan (Linux/Windows), or DX12 (Windows)
 - **Internet access** (optional, for RCSB downloads)
 
 ### GUI panel (viso-ui)

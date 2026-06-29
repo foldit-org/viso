@@ -5,11 +5,11 @@
 //!
 //! # Key types
 //!
-//! - [`VisoEngine`] — the main rendering engine
-//! - [`VisoOptions`](options::VisoOptions) — runtime configuration (display,
+//! - [`VisoEngine`]: the main rendering engine
+//! - [`VisoOptions`](options::VisoOptions): runtime configuration (display,
 //!   lighting, camera, colors)
-//! - [`VisoError`] — error type
-//! - [`KeyBindings`] — physical-key → engine-action dispatch table
+//! - [`VisoError`]: error type
+//! - [`KeyBindings`]: physical-key to engine-action dispatch table
 //!
 //! # Architecture
 //!

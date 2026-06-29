@@ -26,16 +26,15 @@ writes) so only the closest geometry's pick ID survives.
 The picking pass renders the following geometry, each with its own
 shader:
 
-1. **Backbone tube + ribbon** — uses `picking_mesh.wgsl`. In Cartoon
-   mode the renderer issues separate index ranges for tube (coil)
-   segments and ribbon (helix/sheet) segments; both write their
-   residue's pick ID.
-2. **Sidechain capsules** — uses `picking_capsule.wgsl` with a storage
-   buffer of capsule instances.
-3. **Ball-and-stick spheres** — uses `picking_sphere.wgsl`. Atom
-   indices are mapped through the per-rebuild `PickMap`.
-4. **Ball-and-stick capsules** — uses `picking_capsule.wgsl` for bond
-   capsules in BallAndStick mode.
+1. **Backbone tube + ribbon** (`picking_mesh.wgsl`). In Cartoon mode the
+   renderer issues separate index ranges for tube (coil) segments and
+   ribbon (helix/sheet) segments; both write their residue's pick ID.
+2. **Sidechain capsules** (`picking_capsule.wgsl`) with a storage buffer
+   of capsule instances.
+3. **Ball-and-stick spheres** (`picking_sphere.wgsl`). Atom indices are
+   mapped through the per-rebuild `PickMap`.
+4. **Ball-and-stick capsules** (`picking_capsule.wgsl`) for bond capsules
+   in BallAndStick mode.
 
 ### PickTarget and PickMap
 
@@ -68,24 +67,26 @@ Viso uses a two-frame pipeline:
 3. `start_readback()` initiates an async buffer map without blocking.
 
 **Frame N+1:**
-1. `complete_readback()` polls the wgpu device without blocking.
+1. `poll_and_resolve` polls the wgpu device without blocking.
 2. If the map callback has fired (signaled via `AtomicBool`), the
-   mapped data is read:
-   - Read 4 bytes as `u32`
-   - Resolve through the active `PickMap` to a `PickTarget`
+   mapped data is read: 4 bytes as `u32`, resolved through the active
+   `PickMap` to a `PickTarget`.
 3. The staging buffer is unmapped.
-4. Result is cached in `hovered_target` on the picking system.
+4. The result is cached in `hovered_target` on the picking system.
 
 If the readback isn't ready yet, the previous frame's cached value is
-used. Hover feedback is at most one frame behind, which is
-imperceptible.
+used, so hover is at most one frame behind the cursor.
 
 The flow is wired up inside `engine.render()`:
 
 ```rust
 self.gpu.pick.picking.start_readback();      // after queue.submit()
-self.gpu.pick.poll_and_resolve(&device);     // before next render
+self.gpu.pick.poll_and_resolve(&device);     // wraps complete_readback()
 ```
+
+`poll_and_resolve` (`src/renderer/picking/mod.rs`) is the call the engine
+makes; it internally calls `complete_readback` on the picking pipeline
+and maps the raw id through the `PickMap`.
 
 ## Public Hover API
 
@@ -101,8 +102,8 @@ match target {
 }
 ```
 
-`InputProcessor::handle_event` takes the current hover target so it
-can attach the right residue index to selection commands.
+`hovered_target` is read from the cached pick resolved on the previous
+frame, so it is current as of the last completed readback.
 
 ## Selection Buffer
 
@@ -134,36 +135,43 @@ the total residue count exceeds the current capacity.
 
 ## Click Handling
 
-Selection commands are produced by `InputProcessor` from click
-events and dispatched through `engine.execute(...)`:
+The engine classifies clicks; the host applies them. `feed_pointer_button`
+returns a `ClickEvent` whose `expansion` field already lists the residues
+the click selects (computed against the current scene). The host runs
+`classify_click_for_selection` to get a `ClickSelectionAction`, applies
+it to its own selection store, then pushes the result with
+`engine.set_selection`. See
+[Handling Input](../integration/handling-input.md) for the full loop.
 
-| Command | Behavior |
-|---------|----------|
-| `SelectResidue { index, extend: false }` | Replace selection with the clicked residue |
-| `SelectResidue { index, extend: true }` | Toggle the residue (shift-click) |
-| `SelectSegment { index, extend }` | Select all residues in the same SS segment |
-| `SelectChain { index, extend }` | Select all residues in the same chain |
-| `ClearSelection` | Clear everything |
+| Pattern | Expansion |
+|---------|-----------|
+| `Single` | the clicked residue |
+| `Double` | every residue in the clicked residue's SS segment |
+| `Triple` | every residue in the clicked residue's chain |
+| `Empty` | empty (background click; classifies as `Clear`) |
+
+A plain click maps to `Replace(expansion)`, a shift-held click to
+`Toggle(expansion)`, and an `Empty` click to `Clear`.
 
 ### Double Click (Secondary Structure Segment)
 
-`SelectSegment` walks the engine's concatenated cartoon SS array
-backward and forward from the clicked residue until the SS type
-changes, then selects every residue in the resulting range. Shift-held
-clicks add to the existing selection.
+The double-click expansion walks the engine's concatenated cartoon SS
+array backward and forward from the clicked residue until the SS type
+changes, then returns every residue in the resulting range
+(`residues_in_segment`).
 
 ### Triple Click (Chain)
 
-`SelectChain` finds the chain containing the clicked residue and
-selects every residue in that chain.
+The triple-click expansion finds the chain containing the clicked
+residue and returns every residue in that chain (`residues_in_chain`).
 
 ### Click Type Detection
 
-`InputProcessor`'s mouse state machine tracks timing between clicks.
-Clicks within a threshold on the same residue increment the click
-counter (single → double → triple). If the mouse moved between press
-and release, it's classified as a drag and produces a camera command
-instead of a selection.
+The engine's multi-click state machine (`src/input/click_state.rs`)
+tracks timing between presses. Clicks within a threshold on the same
+target increment the click counter (single, double, triple). If the
+pointer moved between press and release, the gesture is classified as a
+drag (which drives the camera) and `feed_pointer_button` returns `None`.
 
 ## Selection in Shaders
 
@@ -180,19 +188,27 @@ if is_selected == 1u {
 }
 ```
 
-The hover effect uses the camera uniform's `hovered_residue` field —
-the shader checks if the fragment's residue index matches the hovered
+The hover effect uses the camera uniform's `hovered_residue` field: the
+shader checks whether the fragment's residue index matches the hovered
 residue and applies a highlight.
 
-## Querying Selection State
+## Querying and Mutating Selection State
+
+Selection is host-owned. Push the authoritative per-entity selection to
+the engine and read back the hover target:
 
 ```rust
-// Currently selected residue indices
-let selected: &[i32] = engine.selected_residues();
+// Replace the selection. The engine stores this per-entity map as the
+// source of truth and re-derives the flat GPU bitset from it.
+engine.set_selection(&selection); // &BTreeMap<EntityId, BTreeSet<u32>>
 
-// Currently hovered target (one frame behind mouse)
+// Clear the selection.
+engine.clear_selection();
+
+// Currently hovered target (resolved from the previous frame's pick).
 let hovered: PickTarget = engine.hovered_target();
-
-// Clear via command
-engine.execute(VisoCommand::ClearSelection);
 ```
+
+The engine keeps no public list of selected residues; the host's store
+is authoritative, and the engine derives its GPU bitset from whatever
+`set_selection` was last given.

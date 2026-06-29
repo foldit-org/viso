@@ -18,10 +18,12 @@ pub struct VisoOptions {
 }
 ```
 
-All sub-structs use `#[serde(default)]`, so TOML files can be partial —
-only the fields you want to override need to be specified. Key
-bindings live separately on `InputProcessor` (`KeyBindings`); they are
-an input-layer concern, not a rendering option.
+All sub-structs use `#[serde(default)]`, so TOML files can be partial:
+only the fields you want to override need to be specified. Key bindings
+are not part of `VisoOptions`. They live in the standalone `KeyBindings`
+table (`src/input/key_bindings.rs`), which holds closures and is not
+serializable; build it with `KeyBindings::default()` and edit it in code,
+not via TOML.
 
 ## Display Options
 

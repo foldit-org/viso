@@ -1,10 +1,9 @@
 # The Render Loop
 
-Every frame follows a specific sequence. The order matters — polling
+Every frame follows a specific sequence, and the order matters. Polling
 the assembly snapshot before applying pending mesh data ensures newly
-generated meshes appear on the same frame their owning rebuild
-finishes, and updating the camera before rendering ensures smooth
-animation.
+generated meshes appear on the same frame their owning rebuild finishes,
+and updating the camera before rendering keeps animation smooth.
 
 ## Minimal Render Loop (Standalone)
 
@@ -33,8 +32,8 @@ WindowEvent::RedrawRequested => {
 
 `engine.update(dt)` handles all per-frame coordination work:
 
-1. **Camera animation tick** — interpolates animated focus, distance,
-   and bounding radius; advances turntable auto-rotation.
+1. **Camera animation tick**: interpolates animated focus, distance, and
+   bounding radius; advances turntable auto-rotation.
 2. **Drain the pending Assembly snapshot.** If a new `Assembly`
    snapshot is waiting (because the host or `VisoApp` called
    `engine.set_assembly`), the engine rederives its per-entity state
@@ -80,9 +79,9 @@ elapsed time hasn't met the minimum frame duration).
 
 Surface errors are expected during resize or focus changes:
 
-- `SurfaceError::Outdated` / `SurfaceError::Lost` — the surface needs
+- `SurfaceError::Outdated` / `SurfaceError::Lost`: the surface needs
   reconfiguration. Call `resize()` with the current window dimensions.
-- Other errors are logged but non-fatal — the next frame retries.
+- Other errors are logged but non-fatal; the next frame retries.
 
 ## Rendering to a Texture (Embedding)
 
@@ -105,10 +104,10 @@ GPU picking uses a two-frame pipeline to avoid stalling:
 1. **Frame N**: The picking pass renders to an offscreen texture and
    copies the pixel under the mouse to a staging buffer.
    `start_readback()` initiates an async buffer map.
-2. **Frame N+1**: `complete_readback()` polls the device without
-   blocking. If the map is complete, it reads the residue ID and
-   resolves it to a `PickTarget` via the engine's `PickMap`. Otherwise
-   it uses the cached value from the previous successful read.
+2. **Frame N+1**: `poll_and_resolve` polls the device without blocking
+   (it wraps `complete_readback`). If the map is complete, it reads the
+   residue ID and resolves it to a `PickTarget` via the engine's
+   `PickMap`. Otherwise it keeps the cached value from the previous
+   successful read.
 
-Hover feedback is one frame behind mouse movement, which is
-imperceptible in practice but avoids GPU pipeline stalls.
+Hover is one frame behind the cursor, which avoids GPU pipeline stalls.

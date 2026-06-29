@@ -1,8 +1,8 @@
 # Viso
 
-Viso is a GPU-accelerated 3D protein visualization engine written in Rust. It renders interactive, real-time views of macromolecular structures from PDB and mmCIF files using modern WebGPU graphics via [wgpu](https://wgpu.rs/).
+Viso is a GPU-accelerated 3D protein visualization engine written in Rust. It renders interactive, real-time views of macromolecular structures from PDB and mmCIF files on the GPU via [wgpu](https://wgpu.rs/).
 
-Built with a full post-processing pipeline (bloom, SSAO, FXAA, tone mapping), background mesh generation, and an animation system for smooth structural transitions.
+It includes a post-processing pipeline (bloom, SSAO, FXAA, tone mapping), background mesh generation, and an animation system for structural transitions.
 
 For architecture details, integration guides, and deep dives into individual subsystems, see the [full documentation](https://petridecus.github.io/viso/).
 
@@ -23,7 +23,7 @@ For architecture details, integration guides, and deep dives into individual sub
 - **Ray-marched impostors**: pixel-perfect sidechains and ball-and-stick atoms at any zoom level
 - **Interactive camera**: arcball rotation, panning, zoom, auto-rotation
 - **GPU picking**: click to select individual residues, double-click to select segments, triple-click to select chains, shift-click for multi-select
-- **Animation system**: multiple behaviors including smooth interpolation, cascading reveals, and collapse/expand transitions
+- **Animation system**: snap, smooth (cubic-hermite), and cascade transitions, with per-entity overrides
 - **RCSB integration**: pass a 4-character PDB ID and Viso downloads the structure automatically
 - **TOML-based presets**: configure display, lighting, coloring, geometry, and post-processing via preset files
 - **Background scene processing**: mesh generation runs on a dedicated CPU thread to keep the render loop responsive
@@ -60,7 +60,7 @@ extra tools are required:
 # WASM compilation target
 rustup target add wasm32-unknown-unknown
 
-# Trunk (WASM bundler) — install once
+# Trunk (WASM bundler); install once
 cargo install trunk
 ```
 
@@ -70,7 +70,7 @@ will be non-functional. To skip the GUI entirely, build with
 
 ### Platform-specific dependencies
 
-**Linux** — the default build includes a GUI webview panel, which requires GTK3 and WebKit2GTK:
+**Linux**: the default build includes a GUI webview panel, which requires GTK3 and WebKit2GTK:
 
 ```sh
 # Debian/Ubuntu
@@ -121,12 +121,18 @@ When given a PDB ID, Viso downloads the corresponding mmCIF file from RCSB and c
 | Double-click | Select secondary structure segment |
 | Triple-click | Select chain |
 | Shift + click | Multi-select |
-| `Tab` | Cycle focus (Session → Structure → Entity) |
-| `` ` `` (backtick) | Reset focus to full session |
-| `W` | Toggle water visibility |
+| `Q` | Recenter camera on focus |
+| `Tab` | Cycle focus through entities |
+| `` ` `` (backtick) | Reset focus to all entities |
+| `R` | Toggle auto-rotation |
+| `T` | Toggle trajectory playback |
+| `I` | Toggle ion visibility |
+| `U` | Toggle water visibility |
+| `O` | Toggle solvent visibility |
+| `L` | Cycle lipid display mode |
 | `Escape` | Clear selection |
 
-Key bindings are configurable via TOML preset files.
+Key bindings are defined in the `KeyBindings` table in code.
 
 ### Logging
 
