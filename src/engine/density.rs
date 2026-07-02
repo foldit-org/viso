@@ -156,6 +156,38 @@ impl VisoEngine {
         );
     }
 
+    /// Load a density map. Returns the assigned map ID.
+    ///
+    /// The map is immediately visible at the default sigma level.
+    pub fn load_density(&mut self, map: Density) -> u32 {
+        self.density_mut().load(map)
+    }
+
+    /// Remove a density map by ID.
+    pub fn remove_density(&mut self, id: u32) {
+        self.density_mut().remove(id);
+    }
+
+    /// Set the raw density threshold for a density map.
+    pub fn set_density_threshold(&mut self, id: u32, threshold: f32) {
+        self.density_mut().set_threshold(id, threshold);
+    }
+
+    /// Set visibility for a density map.
+    pub fn set_density_visible(&mut self, id: u32, visible: bool) {
+        self.density_mut().set_visible(id, visible);
+    }
+
+    /// Set color for a density map.
+    pub fn set_density_color(&mut self, id: u32, color: [f32; 3]) {
+        self.density_mut().set_color(id, color);
+    }
+
+    /// Set opacity for a density map (0.0–1.0).
+    pub fn set_density_opacity(&mut self, id: u32, opacity: f32) {
+        self.density_mut().set_opacity(id, opacity);
+    }
+
     /// Disjoint-borrow write view over the density store plus the
     /// scene fields every density mutation has to read for regeneration.
     pub(crate) fn density_mut(&mut self) -> DensityScene<'_> {
