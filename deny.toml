@@ -3,6 +3,13 @@ unmaintained = "workspace"
 ignore = [
     # gtk3 is a transitive dep of wry via webkit2gtk; not under our control
     { id = "RUSTSEC-2024-0415", reason = "transitive dep of wry, awaiting upstream migration to gtk4" },
+    # quick-xml DoS advisories reachable only through wayland-scanner, a build-time
+    # proc-macro that parses the trusted, fixed wayland-protocol XML; no untrusted
+    # input path, so the DoS is not reachable. The latest wayland-scanner (0.31.10)
+    # still requires quick-xml ^0.39, so the fixed 0.41 is unreachable until upstream
+    # bumps it; no dependency upgrade resolves this today.
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml quadratic-attr DoS via wayland-scanner build-time proc-macro on trusted XML; unreachable; wayland-scanner ^0.39 blocks quick-xml 0.41, awaiting upstream" },
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml namespace-allocation DoS via wayland-scanner build-time proc-macro on trusted XML; unreachable; awaiting upstream quick-xml 0.41 bump" },
 ]
 
 [licenses]

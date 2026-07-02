@@ -24,8 +24,6 @@ use crate::options::{
     ChainLod, ColorOptions, DisplayOptions, DrawingMode, GeometryOptions,
 };
 
-// Platform-abstracted background thread spawn
-
 /// Handle to a background worker. On native this is a joinable OS thread;
 /// on WASM it is a no-op because the worker runs on a rayon pool thread
 /// (backed by web workers via `wasm-bindgen-rayon` + `SharedArrayBuffer`)
@@ -396,25 +394,12 @@ impl Drop for SceneProcessor {
 }
 
 /// Per-entity mesh cache with settings-based invalidation.
-///
-/// Caches per-entity geometry keyed on [`EntityId`], plus the last
-/// rebuild's per-entity inputs ([`MeshCache::last_entities`]) so
-/// `AnimationFrame` requests can regenerate every entity's mesh -- through
-/// every drawing mode -- from interpolated positions alone.
 struct MeshCache {
     meshes: FxHashMap<EntityId, (u64, CachedEntityMesh)>,
     last_display: Option<DisplayOptions>,
     last_colors: Option<ColorOptions>,
     last_geometry: Option<GeometryOptions>,
-    /// Per-entity rebuild inputs from the last `FullRebuild`, retained so
-    /// an `AnimationFrame` can regenerate every entity's mesh -- through
-    /// every drawing mode -- from interpolated positions, using the same
-    /// per-entity derivation the rebuild path uses. Positions on these
-    /// snapshots are stale (the live ones arrive per frame); everything
-    /// else (topology, drawing mode, colors, SS) is reused as-is.
     last_entities: Vec<FullRebuildEntity>,
-    /// Per-entity display+geometry overrides captured at the last
-    /// `FullRebuild`, parallel to [`Self::last_entities`].
     last_entity_options: FxHashMap<u32, (DisplayOptions, GeometryOptions)>,
 }
 
@@ -432,9 +417,7 @@ impl MeshCache {
 
     /// Retain the per-entity rebuild inputs so subsequent
     /// `AnimationFrame`s can regenerate meshes from interpolated positions
-    /// through the same per-entity derivation as the rebuild. No drawing
-    /// mode is privileged here -- the retained snapshot carries every
-    /// entity's topology, drawing mode, colors, and SS as-is.
+    /// through the same per-entity derivation as the rebuild.
     fn cache_stable_data(
         &mut self,
         entities: &[FullRebuildEntity],
@@ -637,13 +620,9 @@ fn surface_is_stale(result_generation: u64, latest_generation: u64) -> bool {
     result_generation < latest_generation
 }
 
-/// The coalesced result of draining the request queue: at most one
-/// mesh-stream request and at most one surface-stream request, plus a
-/// shutdown flag.
+/// The coalesced result of draining the request queue
 struct DrainedRequests {
-    /// Latest mesh-stream request (`FullRebuild` / `AnimationFrame`), with
-    /// the rule that an `AnimationFrame` never buries a pending
-    /// `FullRebuild`.
+    /// Latest mesh-stream request (`FullRebuild` / `AnimationFrame`)
     mesh: Option<SceneRequest>,
     /// Latest surface-stream request body.
     surface: Option<Box<SurfaceRebuildBody>>,
@@ -693,8 +672,7 @@ mod tests {
 
     /// A cache with no retained entities but populated scene state, so
     /// `regenerate_for_animation` runs to its main return without needing
-    /// real topology or a GPU device. Backbone-only frames must mark the
-    /// result so the apply side leaves the retained sidechains untouched.
+    /// real topology or a GPU device.
     fn cache_with_empty_scene() -> MeshCache {
         let mut cache = MeshCache::new();
         cache.last_display = Some(DisplayOptions::default());
@@ -744,8 +722,7 @@ mod tests {
         assert!(!surface_is_stale(5, 5));
     }
 
-    /// A result built ahead of the recorded latest (a generation the
-    /// reader has not yet observed) is accepted.
+    /// A result built ahead of the recorded latest is accepted.
     #[test]
     fn surface_result_ahead_of_latest_is_accepted() {
         assert!(!surface_is_stale(6, 5));
@@ -757,8 +734,7 @@ mod tests {
         assert!(surface_is_stale(4, 5));
     }
 
-    /// The surface generation carried by a drained surface body. `None`
-    /// means no surface body survived, which the asserting tests reject.
+    /// The surface generation carried by a drained surface body.
     fn surface_generation_of(drained: &DrainedRequests) -> Option<u64> {
         drained.surface.as_ref().map(|body| body.surface_generation)
     }

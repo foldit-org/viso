@@ -9,8 +9,8 @@
 //! emitted ribbon anchors and a sheet-residue SG picks up the
 //! sheet-flattening offset while a resting scene re-resolves nothing per
 //! frame. The ribbon-anchor view and the shared
-//! [`rendered_atom_position`](crate::engine::scene_state::rendered_atom_position)
-//! resolver are borrowed from [`crate::engine::constraint`].
+//! [`rendered_atom_position`] resolver are borrowed from
+//! [`crate::engine::constraint`].
 
 use glam::Vec3;
 use molex::entity::molecule::id::EntityId;

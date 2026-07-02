@@ -1,5 +1,4 @@
 pub(crate) mod annotations;
-/// Seam-time hydrogen-bond + disulfide connection resolution.
 mod bond_connections;
 mod bootstrap;
 pub(crate) mod command;
@@ -9,12 +8,10 @@ mod density;
 pub(crate) mod density_store;
 pub(crate) mod entity_view;
 pub(crate) mod focus;
-/// Pointer / scroll / modifier intake and click-expansion helpers.
 mod intake;
 mod options_apply;
 pub(crate) mod positions;
 pub(crate) mod scene;
-/// Scene operations callable directly on `VisoEngine`.
 mod scene_ops;
 pub(crate) mod scene_state;
 pub(crate) mod surface;
@@ -43,18 +40,12 @@ use crate::options::{SurfaceKindOption, VisoOptions};
 use crate::renderer::GpuPipeline;
 
 /// Quiet window the publish stream must stay silent for before the
-/// molecular surface is regenerated: long enough that a continuous edit
-/// (wiggle, drag) never crosses it mid-motion, short enough to re-mesh
-/// promptly once the conformation comes to rest.
+/// molecular surface is regenerated
 const SURFACE_SETTLE_WINDOW: std::time::Duration =
     std::time::Duration::from_millis(180);
 
 /// A host-supplied void distance field stored on the engine, meshed as a
 /// smooth blob on every surface regen.
-///
-/// `phi` is a flat row-major scalar grid that is HIGH at void centers and
-/// ~0 at atom walls / exterior; the worker meshes its isosurface at
-/// `threshold` directly. Pushed via
 /// [`VisoEngine::set_external_void_field`].
 pub(crate) struct ExternalVoidField {
     /// Grid dimensions `[nx, ny, nz]`.
@@ -95,14 +86,12 @@ pub(crate) struct ConstraintSpecs {
 /// overrides, behavior overrides, camera state) are mutated through
 /// engine methods directly.
 pub struct VisoEngine {
-    // GPU + camera
     /// All GPU infrastructure (device, renderers, picking, post-process,
     /// lighting, cursor, culling state).
     pub(crate) gpu: GpuPipeline,
     /// Orbital camera controller.
     pub(crate) camera_controller: CameraController,
 
-    // Runtime state
     /// Stored band/pull constraint specs.
     pub(crate) constraints: ConstraintSpecs,
     /// Structural animation, trajectory, and pending transitions.
@@ -120,7 +109,6 @@ pub struct VisoEngine {
     /// into the cavity stream. `None` when no field is set.
     pub(crate) external_void_field: Option<ExternalVoidField>,
 
-    // Assembly ingest + derived per-entity state
     /// Pending snapshot pushed by the host, latest applied snapshot,
     /// generation tracker, plus the per-entity render-ready derived
     /// state rebuilt on every sync (`SceneRenderState`, `EntityView`s,
@@ -129,28 +117,18 @@ pub struct VisoEngine {
     pub(crate) scene: Scene,
 
     // User-authored per-entity annotations
-    /// Per-entity opinions that ride alongside the Assembly: focus,
-    /// visibility, behaviors, appearance overrides, scores, SS
-    /// overrides, surfaces. All maps keyed on [`EntityId`] so lookups
-    /// are O(1). See [`EntityAnnotations`].
     pub(crate) annotations: EntityAnnotations,
 
     // Background isosurface-mesh regeneration
-    /// Holder for the surface-regen submit channel used by
-    /// [`surface_regen::regenerate_surfaces`]. Requests run on the shared
-    /// scene-processor worker; main-thread polling happens in
-    /// [`GpuPipeline::apply_pending_surface`].
     pub(crate) surface_regen: surface_regen::SurfaceRegen,
+
     /// The `scene.last_seen_generation` the molecular surface was last
     /// regenerated against; when it lags the displayed generation the
-    /// surface is stale. Inits to `u64::MAX` (matching
-    /// `last_seen_generation`) so a never-built surface reads stale only
-    /// once real geometry has been published.
+    /// surface is stale.
     surface_built_for_generation: u64,
+
     /// Wall-clock instant of the most recent consumed publish, used to
-    /// detect when the publish stream has gone quiet. A
-    /// `web_time::Instant`, not a `dt` accumulator: the web frame loop
-    /// feeds a fixed `dt`, so only a wall clock measures real elapsed time.
+    /// detect when the publish stream has gone quiet.
     last_publish_at: Instant,
 
     // Input state
@@ -162,8 +140,6 @@ pub struct VisoEngine {
     /// Whether the shift modifier is currently held.
     pub(crate) shift_pressed: bool,
 }
-
-// Frame loop
 
 impl VisoEngine {
     /// Per-frame updates: animation ticks, uniform uploads, frustum
@@ -211,12 +187,6 @@ impl VisoEngine {
 
     /// Tick animation (both trajectory and structural), submitting any
     /// interpolated frame to the background thread.
-    ///
-    /// A tick only mutates the live `scene.positions` and submits a frame;
-    /// the bond capsules are re-resolved on the apply side
-    /// ([`Self::apply_pending_animation`]), against the displayed frame the
-    /// overlays read, so they stay coherent with the drawn mesh rather than
-    /// tracking the live positions a worker round-trip ahead.
     fn tick_animation(&mut self) {
         let now = Instant::now();
         let trajectory_frame = self.animation.advance_trajectory(now);
@@ -288,8 +258,6 @@ impl VisoEngine {
     }
 }
 
-// Lifecycle + queries
-
 impl VisoEngine {
     /// Advance camera animation and apply any pending scene from the
     /// background processor.
@@ -297,10 +265,7 @@ impl VisoEngine {
         let _ = self.camera_controller.update_animation(dt);
         let now = Instant::now();
 
-        // A newer publish arriving mid-play coalesces to the latest target:
-        // re-aim while still collapsing/easing (or on a plain ease) by
-        // dropping the player so it rebuilds toward the latest below; but
-        // let an in-flight expand finish before starting fresh.
+        // A newer publish arriving mid-play coalesces to the latest target
         if self.has_new_pending()
             && self
                 .animation
@@ -348,12 +313,7 @@ impl VisoEngine {
     }
 
     /// Build and start an animation from the pending snapshot, if one is
-    /// waiting. A same-topology change adopts B up front (a same-length
-    /// adopt keeps the current positions) so the player's ease animates the
-    /// kept positions toward B's coords; a topology-changing mutation defers
-    /// adoption to the `AdoptTarget` waypoint and leaves the scene on A until
-    /// then. `None` from the builder (a residue insert/delete, or no
-    /// movement) snaps via the normal adopt.
+    /// waiting.
     fn begin_pending_animation(&mut self) {
         if !self.has_new_pending() {
             return;
@@ -403,10 +363,6 @@ impl VisoEngine {
         self.reset_scene_local_state();
         self.scene.pending = Some(assembly);
         self.sync_now();
-        // `sync_now` advanced `last_seen_generation` to the new snapshot;
-        // the reset already regenerated the surface against this scene, so
-        // re-align the marker to the synced generation to stop a redundant
-        // rebuild right after the swap.
         self.surface_built_for_generation = self.scene.last_seen_generation;
     }
 
@@ -427,11 +383,6 @@ impl VisoEngine {
     }
 
     /// Snap (non-animated) version of [`Self::fit_camera_to_focus`].
-    /// Sets `focus_point`, orbit `distance`, and `bounding_radius`
-    /// instantly to the molecule's bounding sphere, needed when a
-    /// caller follows up with a manual `set_camera_pose` and would
-    /// otherwise leave `bounding_radius` (the fog driver) tied to the
-    /// previous topology.
     pub fn snap_camera_to_focus(&mut self) {
         let visible: Vec<&MoleculeEntity> = self
             .scene
@@ -450,9 +401,6 @@ impl VisoEngine {
 
     /// Drain any pending Assembly snapshot and, if its generation
     /// differs from the last applied one, rederive viso-side state.
-    /// Returns `true` if a new generation was consumed (caller should
-    /// follow up with mesh-rebuild work); `false` if there was nothing
-    /// to apply.
     fn poll_assembly(&mut self) -> bool {
         let Some(assembly) = self.scene.pending.take() else {
             return false;
@@ -493,9 +441,7 @@ impl VisoEngine {
 
     /// Regenerate the molecular surface once the conformation has come to
     /// rest. Called once per `update` tick after the latest publish has
-    /// been consumed; the expensive marching-cubes re-mesh runs at most
-    /// once per rest, never per wiggle/drag frame (each publish restarts
-    /// the quiet window).
+    /// been consumed
     fn maybe_settle_surface(&mut self) {
         // Decide before borrowing fields so the `&self` read and the later
         // `&`-field reads plus marker write don't overlap.
@@ -507,9 +453,6 @@ impl VisoEngine {
             SURFACE_SETTLE_WINDOW,
         );
         if settle {
-            // At rest the scene's reference coords (`se.positions()`, read
-            // by `regenerate_surfaces`) equal the displayed coords, so the
-            // re-meshed surface matches what is on screen.
             surface_regen::regenerate_surfaces(
                 &self.scene,
                 &self.annotations,
@@ -583,13 +526,6 @@ impl VisoEngine {
     /// Reset all scene-local state (animation, scene ingest, derived
     /// per-entity views, annotations). Called when replacing or
     /// clearing the scene.
-    ///
-    /// Also resets `last_seen_generation` to `u64::MAX` so that the
-    /// next Assembly snapshot triggers a sync unconditionally: the
-    /// app-side replace path rebuilds the assembly in one shot via
-    /// `Assembly::new(...)`, which starts at generation 0 and would
-    /// otherwise collide with a previously-observed
-    /// `last_seen_generation` of 0.
     pub(crate) fn reset_scene_local_state(&mut self) {
         self.animation = AnimationState::new();
         self.scene.reset_local_state();
@@ -602,9 +538,7 @@ impl VisoEngine {
             &self.options,
             &self.surface_regen,
         );
-        // Surface just regenerated against the freshly-reset scene; align
-        // the marker with the reset generation so the gate stays quiet
-        // until the next real publish advances the displayed generation.
+
         self.surface_built_for_generation = self.scene.last_seen_generation;
     }
 
@@ -703,9 +637,7 @@ impl VisoEngine {
 
     /// Full breakdown of a cartoon-residue pick: owning entity id +
     /// entity-local residue index + PDB atom name of the heavy atom
-    /// projecting closest to `screen_pos`. The host uses this to
-    /// classify the pick (backbone vs sidechain, protein vs other)
-    /// and build a pull-op dispatch in one pass.
+    /// projecting closest to `screen_pos`.
     #[must_use]
     pub fn picked_residue_atom(
         &self,
@@ -723,11 +655,7 @@ impl VisoEngine {
     }
 
     /// Resolve a flat residue index to its owning entity's raw id and the
-    /// entity-local residue index, without needing a cursor position. Returns
-    /// `None` before the first full rebuild publishes the offsets table or
-    /// when `flat` falls outside every entity's residue span. The host maps
-    /// the raw id to its own [`EntityId`] the same way the pull-drag path
-    /// does (matching on `id.raw()`).
+    /// entity-local residue index, without needing a cursor position.
     #[must_use]
     pub fn flat_to_entity_residue(&self, flat: u32) -> Option<(u32, u32)> {
         self.gpu
@@ -759,9 +687,7 @@ impl VisoEngine {
     }
 
     /// Project screen coordinates onto a plane parallel to the camera
-    /// at the depth of `world_point`. Useful for drag-anchor math
-    /// (e.g. translating cursor motion into world-space delta on the
-    /// camera plane through a clicked atom).
+    /// at the depth of `world_point`.
     #[must_use]
     pub fn screen_to_world_at_depth(
         &self,
@@ -780,13 +706,7 @@ impl VisoEngine {
         self.gpu.cursor_pos = (x, y);
     }
 
-    /// Replace the residue selection. `selection` is the per-entity
-    /// authoritative selection (the same shape foldit-core's
-    /// `App.selection` holds). viso stores it as the source of truth and
-    /// re-derives the flat GPU bitset from its own always-current
-    /// per-entity residue offsets, both here and on every mesh rebuild, so
-    /// the highlight can never go stale relative to a shifting residue
-    /// space.
+    /// Replace the residue selection.
     pub fn set_selection(
         &mut self,
         selection: &BTreeMap<EntityId, BTreeSet<u32>>,

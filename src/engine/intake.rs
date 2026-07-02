@@ -3,7 +3,7 @@
 //!
 //! These are the typed public surface for consumers that route raw
 //! pointer events into the engine. The engine reports back a classified
-//! [`ClickEvent`](crate::input::ClickEvent) on release; consumers map
+//! [`ClickEvent`] on release; consumers map
 //! the event onto their own selection state.
 
 use molex::entity::molecule::id::EntityId;
