@@ -45,7 +45,7 @@ jobs:
       - name: Install wasm-bindgen-cli
         # Version must match the wasm-bindgen library version pinned in
         # Cargo.lock — bindgen rejects mismatched schema versions.
-        run: cargo install wasm-bindgen-cli --version 0.2.120 --locked
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
 
       - name: Install trunk
         run: cargo install trunk
