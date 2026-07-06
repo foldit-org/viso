@@ -3,7 +3,7 @@ members = ["crates/viso-ui", "xtask"]
 
 [package]
 name = "viso"
-version = "0.3.9"
+version = "0.3.10"
 edition = "2021"
 description = "GPU-accelerated 3D protein visualization engine"
 authors = ["Andreas Petrides <apetrides32@gmail.com>"]
