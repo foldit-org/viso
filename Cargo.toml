@@ -45,7 +45,7 @@ web = [
 crate-type = ["rlib"]
 
 [dependencies]
-wgpu = { version = "26.0", features = ["naga-ir"] }
+wgpu = { version = "29", features = ["naga-ir"] }
 winit = { version = "0.30.12", optional = true }
 pollster = { version = "0.4.0", optional = true }
 bytemuck = "1.24.0"
@@ -87,8 +87,8 @@ triple_buffer = "8"
 
 # Half-precision floats for BRDF LUT texture (Rg16Float)
 half = "2"
-naga_oil = "0.19"
-naga = "26"
+naga_oil = "0.22"
+naga = "29"
 
 molex = "0.7.2"
 

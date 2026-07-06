@@ -36,6 +36,7 @@ use crate::animation::{
 };
 use crate::camera;
 use crate::camera::controller::CameraController;
+use crate::gpu::render_context::SurfaceError;
 use crate::options::{SurfaceKindOption, VisoOptions};
 use crate::renderer::GpuPipeline;
 
@@ -213,9 +214,9 @@ impl VisoEngine {
     ///
     /// # Errors
     ///
-    /// Returns [`wgpu::SurfaceError`] if the swapchain frame cannot be
+    /// Returns `SurfaceError` if the swapchain frame cannot be
     /// acquired.
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(&mut self) -> Result<(), SurfaceError> {
         if !self.frame_timing.should_render() {
             return Ok(());
         }

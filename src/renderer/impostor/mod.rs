@@ -138,12 +138,12 @@ impl<T: Pod + Zeroable> ImpostorPass<T> {
             &wgpu::PipelineLayoutDescriptor {
                 label: Some(&format!("{label} Pipeline Layout")),
                 bind_group_layouts: &[
-                    &layouts.camera,
-                    &layouts.lighting,
-                    &layouts.selection,
-                    bind_group_layout,
+                    Some(&layouts.camera),
+                    Some(&layouts.lighting),
+                    Some(&layouts.selection),
+                    Some(bind_group_layout),
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             },
         );
 
@@ -166,7 +166,7 @@ impl<T: Pod + Zeroable> ImpostorPass<T> {
                 primitive: wgpu::PrimitiveState::default(),
                 depth_stencil: Some(pipeline_util::depth_stencil_state()),
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             },
         ))

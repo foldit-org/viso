@@ -15,6 +15,26 @@ pub enum RenderContextError {
     UnsupportedSurface,
 }
 
+/// Failure to acquire a swapchain frame for presentation.
+///
+/// wgpu replaced `Surface::get_current_texture`'s `Result` with a status
+/// enum; this captures the acquisition-failure cases the renderer acts on.
+#[derive(Debug, thiserror::Error)]
+pub enum SurfaceError {
+    /// Frame acquisition timed out or the window is occluded; skip the frame.
+    #[error("surface frame unavailable (timeout or occluded)")]
+    Timeout,
+    /// Surface configuration is outdated; reconfigure and retry.
+    #[error("surface outdated")]
+    Outdated,
+    /// Surface was lost and must be recreated.
+    #[error("surface lost")]
+    Lost,
+    /// A validation error was raised during acquisition.
+    #[error("surface validation error")]
+    Validation,
+}
+
 /// Owns the core wgpu resources: device, queue, surface, and configuration.
 pub struct RenderContext {
     /// The wgpu logical device.
@@ -43,9 +63,9 @@ impl RenderContext {
         window: impl Into<wgpu::SurfaceTarget<'static>>,
         initial_size: (u32, u32),
     ) -> Result<Self, RenderContextError> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             flags: wgpu::InstanceFlags::default().with_env(),
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let surface = instance
             .create_surface(window)
@@ -188,16 +208,27 @@ impl RenderContext {
     ///
     /// # Errors
     ///
-    /// Returns [`wgpu::SurfaceError`] if the surface is lost, outdated,
+    /// Returns `SurfaceError` if the surface is lost, outdated,
     /// or timed out, or if no surface is available (texture-only mode).
-    pub fn get_next_frame(
-        &self,
-    ) -> Result<wgpu::SurfaceTexture, wgpu::SurfaceError> {
-        self.surface
-            .as_ref()
-            .map_or(Err(wgpu::SurfaceError::Lost), |surface| {
-                surface.get_current_texture()
-            })
+    pub fn get_next_frame(&self) -> Result<wgpu::SurfaceTexture, SurfaceError> {
+        let Some(surface) = self.surface.as_ref() else {
+            return Err(SurfaceError::Lost);
+        };
+        match surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => Ok(frame),
+            wgpu::CurrentSurfaceTexture::Timeout
+            | wgpu::CurrentSurfaceTexture::Occluded => {
+                Err(SurfaceError::Timeout)
+            }
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                Err(SurfaceError::Outdated)
+            }
+            wgpu::CurrentSurfaceTexture::Lost => Err(SurfaceError::Lost),
+            wgpu::CurrentSurfaceTexture::Validation => {
+                Err(SurfaceError::Validation)
+            }
+        }
     }
 
     /// Returns `true` if this context has a presentation surface.

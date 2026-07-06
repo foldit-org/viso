@@ -22,6 +22,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 use crate::app::{SelectionStore, VisoApp};
 use crate::error::VisoError;
+use crate::gpu::render_context::SurfaceError;
 use crate::input::{KeyBindings, MouseButton};
 use crate::options::VisoOptions;
 use crate::VisoEngine;
@@ -265,7 +266,7 @@ impl ViewerShell {
 
         match engine.render() {
             Ok(()) => {}
-            Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
+            Err(SurfaceError::Outdated | SurfaceError::Lost) => {
                 let Some(w) = &self.window else { return };
                 let inner = w.inner_size();
                 let (vp_w, vp_h) = viewport_size(inner);

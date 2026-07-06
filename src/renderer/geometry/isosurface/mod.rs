@@ -302,8 +302,8 @@ fn create_back_face_depth_pipeline(
     let pipeline_layout = context.device.create_pipeline_layout(
         &wgpu::PipelineLayoutDescriptor {
             label: Some("Isosurface Backface Depth Layout"),
-            bind_group_layouts: &[camera_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(camera_layout)],
+            immediate_size: 0,
         },
     );
 
@@ -336,7 +336,7 @@ fn create_back_face_depth_pipeline(
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         }))
 }

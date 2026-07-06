@@ -39,11 +39,13 @@ pub(crate) fn create_mesh_pipeline(
     let label = def.label;
     let shader = shader_composer.compose(&context.device, def.shader)?;
 
+    let bind_group_layouts: Vec<Option<&wgpu::BindGroupLayout>> =
+        bind_group_layouts.iter().copied().map(Some).collect();
     let pipeline_layout = context.device.create_pipeline_layout(
         &wgpu::PipelineLayoutDescriptor {
             label: Some(&format!("{label} Layout")),
-            bind_group_layouts,
-            push_constant_ranges: &[],
+            bind_group_layouts: &bind_group_layouts,
+            immediate_size: 0,
         },
     );
 
@@ -84,7 +86,7 @@ pub(crate) fn create_mesh_pipeline(
             },
             depth_stencil: Some(depth_stencil),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         }))
 }

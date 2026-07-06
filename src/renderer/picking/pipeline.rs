@@ -325,8 +325,8 @@ impl Picking {
         let layout = context.device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
                 label: Some("Picking Tube Pipeline Layout"),
-                bind_group_layouts: &[camera_bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(camera_bind_group_layout)],
+                immediate_size: 0,
             },
         );
 
@@ -357,7 +357,7 @@ impl Picking {
                 },
                 depth_stencil: Some(picking_depth_stencil()),
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             },
         ))
@@ -411,10 +411,10 @@ impl Picking {
             &wgpu::PipelineLayoutDescriptor {
                 label: Some(&format!("{label} Pipeline Layout")),
                 bind_group_layouts: &[
-                    camera_bind_group_layout,
-                    &bind_group_layout,
+                    Some(camera_bind_group_layout),
+                    Some(&bind_group_layout),
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             },
         );
 
@@ -445,7 +445,7 @@ impl Picking {
                 },
                 depth_stencil: Some(picking_depth_stencil()),
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             },
         );
@@ -714,8 +714,8 @@ fn storage_bind_group_layout(
 fn picking_depth_stencil() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: wgpu::TextureFormat::Depth32Float,
-        depth_write_enabled: true,
-        depth_compare: wgpu::CompareFunction::Less,
+        depth_write_enabled: Some(true),
+        depth_compare: Some(wgpu::CompareFunction::Less),
         stencil: wgpu::StencilState::default(),
         bias: wgpu::DepthBiasState::default(),
     }

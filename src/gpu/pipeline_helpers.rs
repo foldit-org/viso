@@ -134,12 +134,13 @@ pub(crate) fn create_screen_space_pipeline(
     let shader = def.shader;
     let format = def.format;
     let blend = def.blend;
-    let bind_group_layouts = def.bind_group_layouts;
+    let bind_group_layouts: Vec<Option<&wgpu::BindGroupLayout>> =
+        def.bind_group_layouts.iter().copied().map(Some).collect();
     let pipeline_layout =
         device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(&format!("{label} Pipeline Layout")),
-            bind_group_layouts,
-            push_constant_ranges: &[],
+            bind_group_layouts: &bind_group_layouts,
+            immediate_size: 0,
         });
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(&format!("{label} Pipeline")),
@@ -163,7 +164,7 @@ pub(crate) fn create_screen_space_pipeline(
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     })
 }
