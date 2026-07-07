@@ -60,7 +60,7 @@ pub use engine::constraint::PickedResidueAtom;
 pub use engine::focus::Focus;
 pub use engine::VisoEngine;
 pub use error::VisoError;
-pub use gpu::render_context::RenderContext;
+pub use gpu::render_context::{RenderContext, SurfaceError};
 pub use gpu::texture::RenderTarget;
 // Input (optional convenience)
 pub use input::{
@@ -75,3 +75,4 @@ pub use options::{DisplayOverrides, DrawingMode, HelixStyle, SheetStyle};
 pub use renderer::picking::PickTarget;
 #[cfg(all(feature = "web", target_arch = "wasm32"))]
 pub use wasm_bindgen_rayon::init_thread_pool;
+pub use wgpu;

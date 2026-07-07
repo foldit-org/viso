@@ -92,16 +92,8 @@ impl RenderContext {
             .await
             .map_err(RenderContextError::DeviceRequest)?;
 
-        let capabilities = surface.get_capabilities(&adapter);
-
-        let mut config = surface
-            .get_default_config(&adapter, initial_size.0, initial_size.1)
-            .ok_or(RenderContextError::UnsupportedSurface)?;
-        config.width = initial_size.0;
-        config.height = initial_size.1;
-        config.present_mode = wgpu::PresentMode::Fifo;
-
-        surface.configure(&device, &config);
+        let (config, supported_present_modes) =
+            Self::configure_surface(&surface, &adapter, &device, initial_size)?;
 
         Ok(Self {
             device,
@@ -109,7 +101,70 @@ impl RenderContext {
             surface: Some(surface),
             config,
             render_scale: 1,
-            supported_present_modes: capabilities.present_modes,
+            supported_present_modes,
+        })
+    }
+
+    /// Configure a created surface: default config forced to Fifo at the given
+    /// size, returns the config plus the adapter's supported present modes.
+    fn configure_surface(
+        surface: &wgpu::Surface<'static>,
+        adapter: &wgpu::Adapter,
+        device: &wgpu::Device,
+        size: (u32, u32),
+    ) -> Result<
+        (wgpu::SurfaceConfiguration, Vec<wgpu::PresentMode>),
+        RenderContextError,
+    > {
+        let capabilities = surface.get_capabilities(adapter);
+
+        let mut config = surface
+            .get_default_config(adapter, size.0, size.1)
+            .ok_or(RenderContextError::UnsupportedSurface)?;
+        config.width = size.0;
+        config.height = size.1;
+        config.present_mode = wgpu::PresentMode::Fifo;
+
+        surface.configure(device, &config);
+
+        Ok((config, capabilities.present_modes))
+    }
+
+    /// Create a render context from a caller-owned device and queue while
+    /// still creating the presentation surface here.
+    ///
+    /// The `instance` and `adapter` are borrowed only to build and configure
+    /// the surface; the `device` and `queue` are taken by value and stored.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RenderContextError` if surface creation or configuration
+    /// fails.
+    // `async` mirrors `new()` so call sites share one `block_on` convention,
+    // even though this path issues no device/adapter requests to await.
+    #[allow(clippy::unused_async)]
+    pub async fn new_with_device(
+        instance: &wgpu::Instance,
+        adapter: &wgpu::Adapter,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        target: impl Into<wgpu::SurfaceTarget<'static>>,
+        initial_size: (u32, u32),
+    ) -> Result<Self, RenderContextError> {
+        let surface = instance
+            .create_surface(target)
+            .map_err(RenderContextError::SurfaceCreation)?;
+
+        let (config, supported_present_modes) =
+            Self::configure_surface(&surface, adapter, &device, initial_size)?;
+
+        Ok(Self {
+            device,
+            queue,
+            surface: Some(surface),
+            config,
+            render_scale: 1,
+            supported_present_modes,
         })
     }
 
