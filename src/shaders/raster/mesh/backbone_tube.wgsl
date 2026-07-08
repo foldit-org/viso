@@ -3,6 +3,7 @@
 #import viso::selection::check_selection
 #import viso::highlight::apply_highlight
 #import viso::designability::{check_non_designable, apply_designability}
+#import viso::pulse::{check_pulsing, apply_pulse}
 #import viso::shade::{shade_geometry, ShadingResult}
 #import viso::constants::MAX_IBL_MIP
 
@@ -12,6 +13,10 @@ fn is_selected(residue_idx: u32) -> bool {
 
 fn is_non_designable(residue_idx: u32) -> bool {
     return check_non_designable(residue_idx, arrayLength(&non_designable), non_designable[residue_idx / 32u]);
+}
+
+fn is_pulsing(residue_idx: u32) -> bool {
+    return check_pulsing(residue_idx, arrayLength(&pulse), pulse[residue_idx / 32u]);
 }
 
 struct VertexInput {
@@ -38,6 +43,7 @@ struct VertexOutput {
 @group(1) @binding(4) var brdf_lut: texture_2d<f32>;
 @group(2) @binding(0) var<storage, read> selection: array<u32>;
 @group(2) @binding(1) var<storage, read> non_designable: array<u32>;
+@group(2) @binding(2) var<storage, read> pulse: array<u32>;
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
@@ -73,6 +79,7 @@ fn fs_main(in: VertexOutput) -> FragOutput {
     let hovered = camera.hovered_residue >= 0 && u32(camera.hovered_residue) == in.residue_idx;
     let highlighted = apply_highlight(in.vertex_color.rgb, hovered, is_selected(in.residue_idx));
     var base_color = apply_designability(highlighted.xyz, is_non_designable(in.residue_idx));
+    base_color = apply_pulse(base_color, is_pulsing(in.residue_idx), f32(in.residue_idx), camera.time);
     let outline_factor = highlighted.w;
 
     // Pre-sample IBL textures (modules cannot reference bindings)

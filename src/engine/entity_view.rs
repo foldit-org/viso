@@ -365,8 +365,9 @@ fn protein_sidechain_layout(
     }
 }
 
-/// If `atom_local` is the CA atom of its residue (canonical offset 1),
-/// return its entity-local atom index for wiring as a backbone anchor.
+/// If `atom_local` is a backbone atom that anchors a sidechain bond (CA
+/// for CA-CB; N for proline's N-CD ring closure), return its entity-local
+/// atom index for wiring as a backbone anchor.
 fn backbone_anchor(
     protein: &molex::entity::molecule::protein::ProteinEntity,
     atom_local: u32,
@@ -376,7 +377,11 @@ fn backbone_anchor(
         .residues
         .iter()
         .find(|r| r.atom_range.contains(&idx))?;
-    if idx == residue.atom_range.start + 1 {
+    // CA (offset 1) anchors every residue's CA-CB bond; N (offset 0)
+    // anchors proline's N-CD ring-closure bond. No other backbone atom
+    // bonds to a sidechain atom (the peptide bond is backbone-backbone and
+    // is filtered earlier), so these two offsets are exhaustive.
+    if idx == residue.atom_range.start || idx == residue.atom_range.start + 1 {
         Some(atom_local)
     } else {
         None

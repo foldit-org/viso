@@ -43,8 +43,9 @@ pub(crate) struct SidechainRenderer {
 }
 
 impl SidechainRenderer {
-    /// `sidechain.backbone_bonds`: CA-CB bonds as (ca_position,
-    /// cb_sidechain_index) tuples.
+    /// `sidechain.backbone_bonds`: backbone-anchor -> sidechain bonds
+    /// (CA-CB for every residue, N-CD for proline's ring closure) as
+    /// (anchor_position, cb_sidechain_index) tuples.
     pub(crate) fn new(
         context: &RenderContext,
         layouts: &crate::renderer::PipelineLayouts,

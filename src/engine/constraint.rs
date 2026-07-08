@@ -689,6 +689,28 @@ impl VisoEngine {
             .pick
             .update_non_designable_buffer(&self.gpu.context.queue);
     }
+
+    /// Replace the per-residue pulsing set. `pulsing` is the per-entity
+    /// authoritative set of residues that should pulse in the current
+    /// puzzle. An empty map clears every pulse.
+    ///
+    /// Like [`Self::set_non_designable`], viso stores the per-entity set as
+    /// the source of truth and re-derives the flat GPU bitset from its own
+    /// always-current per-entity residue offsets, both here and on every
+    /// mesh rebuild, so the overlay can never go stale relative to a
+    /// shifting residue space.
+    pub fn set_pulsing_residues(
+        &mut self,
+        pulsing: &std::collections::BTreeMap<
+            EntityId,
+            std::collections::BTreeSet<u32>,
+        >,
+    ) {
+        self.gpu.pick.set_pulse(pulsing.clone());
+        self.gpu
+            .pick
+            .update_pulse_buffer(&self.gpu.context.queue);
+    }
 }
 
 #[cfg(test)]

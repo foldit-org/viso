@@ -170,6 +170,9 @@ impl VisoEngine {
         self.gpu
             .pick
             .update_non_designable_buffer(&self.gpu.context.queue);
+        self.gpu
+            .pick
+            .update_pulse_buffer(&self.gpu.context.queue);
         let _color_transitioning =
             self.gpu.pick.residue_colors.update(&self.gpu.context.queue);
         self.gpu.update_headlamp(&self.camera_controller.camera);

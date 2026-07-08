@@ -364,11 +364,12 @@ pub(crate) struct SidechainLayout {
     /// Intra-sidechain bonds as `(a, b)` indices into
     /// [`atom_indices`](Self::atom_indices).
     pub(crate) bonds: Vec<(u32, u32)>,
-    /// Backbone -> sidechain bonds as `(ca_atom_idx, cb_layout_idx)` where
-    /// `ca_atom_idx` is an entity-local atom index of CA and
-    /// `cb_layout_idx` is the index into
-    /// [`atom_indices`](Self::atom_indices) of the CB that CA connects
-    /// to.
+    /// Backbone -> sidechain bonds as `(anchor_atom_idx, cb_layout_idx)`
+    /// where `anchor_atom_idx` is the entity-local atom index of the
+    /// backbone anchor atom (CA for CA-CB bonds, N for proline's N-CD ring
+    /// closure) and `cb_layout_idx` is the index into
+    /// [`atom_indices`](Self::atom_indices) of the sidechain atom that the
+    /// anchor connects to.
     pub(crate) backbone_bonds: Vec<(u32, u32)>,
     /// `(residue_idx, atom_name) -> entity-local atom index` for O(1)
     /// constraint-resolution lookup. Built at topology-derivation time

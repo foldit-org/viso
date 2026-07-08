@@ -14,24 +14,29 @@ use crate::gpu::pipeline_helpers::read_only_storage_buffer;
 use crate::gpu::{RenderContext, Shader, ShaderComposer};
 use crate::renderer::geometry::backbone::backbone_vertex_buffer_layout;
 
-/// Per-residue overlay buffers for GPU shaders. Owns BOTH bit-array storage
-/// buffers that share group 2 in every geometry shader: the selection
-/// highlight (`@binding(0)`) and the non-designable bitset (`@binding(1)`).
-/// One bind group carries both, so the geometry passes need only a single
-/// `set_bind_group(2, ...)` to feed both overlays. Both buffers are sized to
-/// the same `capacity` (one tracked word-size invariant covers both).
+/// Per-residue overlay buffers for GPU shaders. Owns the three bit-array
+/// storage buffers that share group 2 in every geometry shader: the selection
+/// highlight (`@binding(0)`), the non-designable bitset (`@binding(1)`), and
+/// the pulse bitset (`@binding(2)`). One bind group carries all three, so the
+/// geometry passes need only a single `set_bind_group(2, ...)` to feed every
+/// overlay. All buffers are sized to the same `capacity` (one tracked
+/// word-size invariant covers them all).
 pub(crate) struct SelectionBuffer {
     buffer: wgpu::Buffer,
     /// Non-designable bitset (1 = residue may not be mutated). Same sizing
     /// and upload semantics as `buffer`; lives at `@binding(1)` of the shared
     /// group-2 layout.
     non_designable_buffer: wgpu::Buffer,
+    /// Pulse bitset (1 = residue is pulsing). Same sizing and upload
+    /// semantics as `buffer`; lives at `@binding(2)` of the shared group-2
+    /// layout.
+    pulse_buffer: wgpu::Buffer,
     /// Bind group layout for the shared group-2 overlay buffers (binding 0 =
-    /// selection, binding 1 = non-designable).
+    /// selection, binding 1 = non-designable, binding 2 = pulse).
     pub(crate) layout: wgpu::BindGroupLayout,
-    /// Bind group referencing both overlay storage buffers.
+    /// Bind group referencing all overlay storage buffers.
     pub(crate) bind_group: wgpu::BindGroup,
-    /// Number of residues (for sizing). Both buffers share this capacity.
+    /// Number of residues (for sizing). All buffers share this capacity.
     capacity: usize,
 }
 
@@ -56,6 +61,13 @@ impl SelectionBuffer {
                 usage: wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_DST,
             });
+        let pulse_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Pulse Buffer"),
+                contents: bytemuck::cast_slice(&data),
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST,
+            });
 
         let layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -63,6 +75,7 @@ impl SelectionBuffer {
                 entries: &[
                     read_only_storage_buffer(0),
                     read_only_storage_buffer(1),
+                    read_only_storage_buffer(2),
                 ],
             });
 
@@ -71,23 +84,26 @@ impl SelectionBuffer {
             &layout,
             &buffer,
             &non_designable_buffer,
+            &pulse_buffer,
         );
 
         Self {
             buffer,
             non_designable_buffer,
+            pulse_buffer,
             layout,
             bind_group,
             capacity: max_residues,
         }
     }
 
-    /// Build the shared group-2 bind group binding both overlay buffers.
+    /// Build the shared group-2 bind group binding every overlay buffer.
     fn create_bind_group(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
         selection: &wgpu::Buffer,
         non_designable: &wgpu::Buffer,
+        pulse: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Residue Overlay Bind Group"),
@@ -100,6 +116,10 @@ impl SelectionBuffer {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: non_designable.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: pulse.as_entire_binding(),
                 },
             ],
         })
@@ -146,8 +166,19 @@ impl SelectionBuffer {
         );
     }
 
-    /// Ensure both overlay buffers have capacity for at least `required`
-    /// residues. Recreates both buffers and the shared bind group if the
+    /// Update the pulse bitset from a list of global residue indices.
+    /// Mirrors [`Self::update`] but writes the `@binding(2)` overlay buffer.
+    pub(crate) fn update_pulse(
+        &self,
+        queue: &wgpu::Queue,
+        pulse_residues: &[i32],
+    ) {
+        let data = self.pack_bits(pulse_residues);
+        queue.write_buffer(&self.pulse_buffer, 0, bytemuck::cast_slice(&data));
+    }
+
+    /// Ensure every overlay buffer has capacity for at least `required`
+    /// residues. Recreates the buffers and the shared bind group if the
     /// current capacity is insufficient.
     pub(crate) fn ensure_capacity(
         &mut self,
@@ -158,7 +189,7 @@ impl SelectionBuffer {
             return;
         }
 
-        // Need to grow - recreate both buffers with new capacity
+        // Need to grow - recreate the buffers with new capacity
         let new_capacity = required;
         let num_words = new_capacity.div_ceil(32);
         let data = vec![0u32; num_words.max(1)];
@@ -177,12 +208,20 @@ impl SelectionBuffer {
                 usage: wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_DST,
             });
+        self.pulse_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Pulse Buffer"),
+                contents: bytemuck::cast_slice(&data),
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST,
+            });
 
         self.bind_group = Self::create_bind_group(
             device,
             &self.layout,
             &self.buffer,
             &self.non_designable_buffer,
+            &self.pulse_buffer,
         );
 
         self.capacity = new_capacity;
@@ -191,7 +230,11 @@ impl SelectionBuffer {
     /// GPU buffer sizes: `(label, used_bytes, allocated_bytes)`.
     pub(crate) fn buffer_info(&self) -> Vec<(&'static str, usize, usize)> {
         let bytes = self.capacity.div_ceil(32).max(1) * 4;
-        vec![("Selection", bytes, bytes), ("Designability", bytes, bytes)]
+        vec![
+            ("Selection", bytes, bytes),
+            ("Designability", bytes, bytes),
+            ("Pulse", bytes, bytes),
+        ]
     }
 }
 

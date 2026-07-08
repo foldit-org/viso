@@ -7,6 +7,7 @@
 #import viso::selection::check_selection
 #import viso::highlight::apply_highlight
 #import viso::designability::{check_non_designable, apply_designability}
+#import viso::pulse::{check_pulsing, apply_pulse}
 #import viso::shade::{shade_geometry, ShadingResult}
 #import viso::constants::{MAX_IBL_MIP, BILLBOARD_SCALE}
 #import viso::impostor_types::SphereInstance
@@ -17,6 +18,10 @@ fn is_selected(residue_idx: u32) -> bool {
 
 fn is_non_designable(residue_idx: u32) -> bool {
     return check_non_designable(residue_idx, arrayLength(&non_designable), non_designable[residue_idx / 32u]);
+}
+
+fn is_pulsing(residue_idx: u32) -> bool {
+    return check_pulsing(residue_idx, arrayLength(&pulse), pulse[residue_idx / 32u]);
 }
 
 struct VertexOutput {
@@ -43,6 +48,7 @@ struct FragOut {
 @group(2) @binding(0) var<storage, read> selection: array<u32>;
 @group(3) @binding(0) var<storage, read> spheres: array<SphereInstance>;
 @group(2) @binding(1) var<storage, read> non_designable: array<u32>;
+@group(2) @binding(2) var<storage, read> pulse: array<u32>;
 
 @vertex
 fn vs_main(
@@ -105,6 +111,7 @@ fn fs_main(in: VertexOutput) -> FragOut {
     let hovered = camera.hovered_residue >= 0 && u32(camera.hovered_residue) == in.entity_id;
     let highlighted = apply_highlight(in.color, hovered, is_selected(in.entity_id));
     var base_color = apply_designability(highlighted.xyz, is_non_designable(in.entity_id));
+    base_color = apply_pulse(base_color, is_pulsing(in.entity_id), f32(in.entity_id), camera.time);
     let outline_factor = highlighted.w;
 
     // Pre-sample IBL textures (modules cannot reference bindings)

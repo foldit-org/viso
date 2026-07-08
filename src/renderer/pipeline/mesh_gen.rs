@@ -51,7 +51,9 @@ fn resolve_sidechain_atoms(
     let backbone_bonds = layout
         .backbone_bonds
         .iter()
-        .map(|&(ca_atom_idx, layout_idx)| (at(ca_atom_idx, "CA"), layout_idx))
+        .map(|&(anchor_atom_idx, layout_idx)| {
+            (at(anchor_atom_idx, "backbone anchor"), layout_idx)
+        })
         .collect();
     (sidechain_positions, backbone_bonds)
 }
@@ -72,7 +74,8 @@ fn generate_sidechain_bytes(
     if layout.atom_indices.is_empty() {
         return (Vec::new(), 0);
     }
-    // Backbone->sidechain bonds use CA position (resolved from positions)
+    // Backbone->sidechain bonds use the backbone anchor position (CA for
+    // CA-CB, N for proline's N-CD ring closure; resolved from positions)
     // + an index into the sidechain layout.
     let (sidechain_positions, backbone_bonds) =
         resolve_sidechain_atoms(layout, positions);

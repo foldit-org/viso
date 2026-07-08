@@ -222,6 +222,10 @@ impl GpuPipeline {
         // and shifts with the offsets table, so re-derive it on the same gate
         // (the per-frame `update_non_designable_buffer` uploads the cache).
         self.pick.rederive_non_designable();
+        // The pulse bitset shares the same global-residue-index space and
+        // shifts with the offsets table, so re-derive it on the same gate
+        // (the per-frame `update_pulse_buffer` uploads the cache).
+        self.pick.rederive_pulse();
         self.pick.groups.rebuild_all(
             &self.pick.picking,
             &self.context.device,

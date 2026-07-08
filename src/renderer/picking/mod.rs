@@ -59,6 +59,16 @@ pub(crate) struct PickingSystem {
     /// Flat (global-residue-index) non-designable cache, re-derived from
     /// `non_designable_per_entity`. Uploaded to the GPU bitset each frame.
     pub(crate) non_designable_flat: Vec<i32>,
+    /// Per-entity pulsing residues: the source of truth for the pulse bitset,
+    /// mirroring `non_designable_per_entity`. The flat GPU bitset
+    /// (`pulse_flat`) is derived from this against the current
+    /// `entity_residue_offsets` on every push AND on every mesh rebuild, so
+    /// it can never go stale relative to a shifting residue space. Empty =
+    /// nothing pulsing.
+    pub(crate) pulse_per_entity: BTreeMap<EntityId, BTreeSet<u32>>,
+    /// Flat (global-residue-index) pulse cache, re-derived from
+    /// `pulse_per_entity`. Uploaded to the GPU bitset each frame.
+    pub(crate) pulse_flat: Vec<i32>,
 }
 
 impl PickingSystem {
@@ -83,6 +93,8 @@ impl PickingSystem {
             selection_per_entity: BTreeMap::new(),
             non_designable_per_entity: BTreeMap::new(),
             non_designable_flat: Vec::new(),
+            pulse_per_entity: BTreeMap::new(),
+            pulse_flat: Vec::new(),
         })
     }
 
@@ -173,6 +185,35 @@ impl PickingSystem {
             }
         }
         self.non_designable_flat = flat;
+    }
+
+    /// Replace the per-entity pulsing set (the source of truth) and re-derive
+    /// the flat GPU bitset cache against the current offsets. The derived
+    /// cache is uploaded by the per-frame [`Self::update_pulse_buffer`] call.
+    pub(crate) fn set_pulse(
+        &mut self,
+        pulse: BTreeMap<EntityId, BTreeSet<u32>>,
+    ) {
+        self.pulse_per_entity = pulse;
+        self.rederive_pulse();
+    }
+
+    /// Re-derive the flat `pulse_flat` cache from the stored per-entity
+    /// pulsing set against the CURRENT `entity_residue_offsets`. Called on
+    /// every push AND on every mesh rebuild (when the offsets table is
+    /// overwritten), so the flat bitset can never go stale relative to a
+    /// shifting residue space. Mirrors [`Self::rederive_non_designable`].
+    pub(crate) fn rederive_pulse(&mut self) {
+        let mut flat: Vec<i32> = Vec::new();
+        for (eid, residues) in &self.pulse_per_entity {
+            let Some(&base) = self.entity_residue_offsets.get(eid) else {
+                continue;
+            };
+            for r in residues {
+                flat.push((base + *r) as i32);
+            }
+        }
+        self.pulse_flat = flat;
     }
 
     /// Walk backwards / forwards from `residue_idx` to find the
@@ -336,5 +377,12 @@ impl PickingSystem {
     pub(crate) fn update_non_designable_buffer(&self, queue: &wgpu::Queue) {
         self.selection
             .update_non_designable(queue, &self.non_designable_flat);
+    }
+
+    /// Upload the current pulse state to the GPU pulse overlay buffer
+    /// (binding 2 of the shared group-2 bind group). Mirrors
+    /// [`Self::update_selection_buffer`].
+    pub(crate) fn update_pulse_buffer(&self, queue: &wgpu::Queue) {
+        self.selection.update_pulse(queue, &self.pulse_flat);
     }
 }
