@@ -707,9 +707,7 @@ impl VisoEngine {
         >,
     ) {
         self.gpu.pick.set_pulse(pulsing.clone());
-        self.gpu
-            .pick
-            .update_pulse_buffer(&self.gpu.context.queue);
+        self.gpu.pick.update_pulse_buffer(&self.gpu.context.queue);
     }
 }
 

@@ -2236,7 +2236,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 2.0.18",
- "windows 0.60.0",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -3000,9 +3000,9 @@ dependencies = [
 
 [[package]]
 name = "molex"
-version = "0.7.2"
+version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53aa5ba569ec58704eb5beb36ab0fb2ff73c593bf9741e7743870521bff7f634"
+checksum = "d098a222092de5d3d6cdceee0dc9f9a9fa99481e4cda9b2baef24547c90d7be2"
 dependencies = [
  "compact_str",
  "flate2",
@@ -5469,7 +5469,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "viso"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "bytemuck",
  "console_error_panic_hook",

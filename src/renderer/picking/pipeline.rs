@@ -41,9 +41,7 @@ pub(crate) struct SelectionBuffer {
 }
 
 impl SelectionBuffer {
-    /// Create the overlay buffers sized for up to `max_residues` residues.
     pub(crate) fn new(device: &wgpu::Device, max_residues: usize) -> Self {
-        // Round up to multiple of 32 bits
         let num_words = max_residues.div_ceil(32);
         let data = vec![0u32; num_words.max(1)];
 
@@ -97,7 +95,6 @@ impl SelectionBuffer {
         }
     }
 
-    /// Build the shared group-2 bind group binding every overlay buffer.
     fn create_bind_group(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
@@ -141,7 +138,6 @@ impl SelectionBuffer {
         data
     }
 
-    /// Update selection state from a list of selected residue indices
     pub(crate) fn update(
         &self,
         queue: &wgpu::Queue,
@@ -189,7 +185,6 @@ impl SelectionBuffer {
             return;
         }
 
-        // Need to grow - recreate the buffers with new capacity
         let new_capacity = required;
         let num_words = new_capacity.div_ceil(32);
         let data = vec![0u32; num_words.max(1)];
@@ -244,23 +239,15 @@ pub(crate) struct PickingGeometry<'a> {
     pub(crate) backbone_vertex_buffer: &'a wgpu::Buffer,
     /// Backbone tube index buffer (back-face culled pass).
     pub(crate) backbone_tube_index_buffer: &'a wgpu::Buffer,
-    /// Number of backbone tube indices to draw.
     pub(crate) backbone_tube_index_count: u32,
     /// Backbone ribbon index buffer (no-cull pass).
     pub(crate) backbone_ribbon_index_buffer: &'a wgpu::Buffer,
-    /// Number of backbone ribbon indices to draw.
     pub(crate) backbone_ribbon_index_count: u32,
-    /// Sidechain capsule bind group for picking.
     pub(crate) capsule_bind_group: Option<&'a wgpu::BindGroup>,
-    /// Number of sidechain capsule instances.
     pub(crate) capsule_count: u32,
-    /// Ball-and-stick capsule bind group for picking.
     pub(crate) bns_capsule_bind_group: Option<&'a wgpu::BindGroup>,
-    /// Number of ball-and-stick capsule instances.
     pub(crate) bns_capsule_count: u32,
-    /// Ball-and-stick sphere bind group for picking.
     pub(crate) bns_sphere_bind_group: Option<&'a wgpu::BindGroup>,
-    /// Number of ball-and-stick sphere instances.
     pub(crate) bns_sphere_count: u32,
 }
 
@@ -269,29 +256,19 @@ pub(crate) struct Picking {
     /// Picking texture (R32Uint format for residue indices)
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
-    /// Depth texture for the picking pass
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
-    /// Staging buffer for reading back pixel data
     staging_buffer: wgpu::Buffer,
-    /// Pipeline for rendering tubes to picking buffer
     tube_pipeline: wgpu::RenderPipeline,
-    /// Pipeline for rendering capsules to picking buffer
     capsule_pipeline: wgpu::RenderPipeline,
-    /// Bind group layout for capsule storage buffer
     capsule_bind_group_layout: wgpu::BindGroupLayout,
-    /// Pipeline for rendering spheres to picking buffer
     sphere_pipeline: wgpu::RenderPipeline,
-    /// Bind group layout for sphere storage buffer
     sphere_bind_group_layout: wgpu::BindGroupLayout,
-    /// Current dimensions
     width: u32,
     height: u32,
-    /// Currently selected residue indices
     pub(crate) selected_residues: Vec<i32>,
-    /// Whether a readback is in flight (buffer mapping requested)
     readback_in_flight: bool,
-    /// Flag set by callback when buffer mapping is complete
+    /// Set by the `map_async` callback when the staging buffer is mapped.
     map_complete: Arc<AtomicBool>,
 }
 
@@ -565,7 +542,6 @@ impl Picking {
         self.depth_view = depth_view;
     }
 
-    /// Create a bind group for capsule storage buffer
     pub(crate) fn create_capsule_bind_group(
         &self,
         device: &wgpu::Device,
@@ -581,7 +557,6 @@ impl Picking {
         })
     }
 
-    /// Create a bind group for sphere storage buffer
     pub(crate) fn create_sphere_bind_group(
         &self,
         device: &wgpu::Device,
@@ -724,15 +699,12 @@ impl Picking {
             return None;
         }
 
-        // Poll without waiting - process callbacks
         let _ = device.poll(wgpu::PollType::Poll);
 
-        // Check if the callback has signaled completion
         if !self.map_complete.load(Ordering::SeqCst) {
             return None;
         }
 
-        // Buffer is mapped - read the data
         let buffer_slice = self.staging_buffer.slice(..4);
         let data = buffer_slice.get_mapped_range();
         let raw_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
@@ -770,7 +742,6 @@ fn draw_picking_geometry(
     camera_bind_group: &wgpu::BindGroup,
     geometry: &PickingGeometry,
 ) {
-    // Draw backbone geometry (tube + ribbon share the same vertex buffer)
     render_pass.set_pipeline(&picking.tube_pipeline);
     render_pass.set_bind_group(0, camera_bind_group, &[]);
     render_pass.set_vertex_buffer(0, geometry.backbone_vertex_buffer.slice(..));
@@ -799,7 +770,6 @@ fn draw_picking_geometry(
         );
     }
 
-    // Draw capsules (sidechains)
     if let Some(capsule_bg) = geometry.capsule_bind_group {
         if geometry.capsule_count > 0 {
             render_pass.set_pipeline(&picking.capsule_pipeline);
@@ -809,7 +779,6 @@ fn draw_picking_geometry(
         }
     }
 
-    // Draw ball-and-stick bond capsules for picking
     if let Some(bns_bg) = geometry.bns_capsule_bind_group {
         if geometry.bns_capsule_count > 0 {
             render_pass.set_pipeline(&picking.capsule_pipeline);
@@ -819,7 +788,6 @@ fn draw_picking_geometry(
         }
     }
 
-    // Draw ball-and-stick spheres for picking
     if let Some(bns_sphere_bg) = geometry.bns_sphere_bind_group {
         if geometry.bns_sphere_count > 0 {
             render_pass.set_pipeline(&picking.sphere_pipeline);

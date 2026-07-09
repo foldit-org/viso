@@ -3,7 +3,7 @@ members = ["crates/viso-ui", "xtask"]
 
 [package]
 name = "viso"
-version = "0.3.10"
+version = "0.3.11"
 edition = "2021"
 description = "GPU-accelerated 3D protein visualization engine"
 authors = ["Andreas Petrides <apetrides32@gmail.com>"]
@@ -90,7 +90,7 @@ half = "2"
 naga_oil = "0.22"
 naga = "29"
 
-molex = "0.7.2"
+molex = "0.7.4"
 
 # Cross-platform Instant (delegates to performance.now() on WASM)
 web-time = "1"
