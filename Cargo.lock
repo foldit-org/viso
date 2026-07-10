@@ -3000,9 +3000,9 @@ dependencies = [
 
 [[package]]
 name = "molex"
-version = "0.7.4"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d098a222092de5d3d6cdceee0dc9f9a9fa99481e4cda9b2baef24547c90d7be2"
+checksum = "3e91a3afe2ced3be6ab9e51dd1ecdcaec6db58ff233e12d6a77b2aa5a2396643"
 dependencies = [
  "compact_str",
  "flate2",
@@ -5469,7 +5469,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "viso"
-version = "0.3.12"
+version = "0.3.13"
 dependencies = [
  "bytemuck",
  "console_error_panic_hook",
