@@ -44,11 +44,21 @@ fn score_to_t_absolute(score: f64) -> f32 {
     }
 }
 
+/// Per-entity scalar inputs the color schemes draw on.
+pub(crate) struct SchemeInputs<'a> {
+    /// Per-residue Rosetta energies, one slice per entity.
+    pub(crate) scores: &'a [Option<&'a [f64]>],
+    /// Per-residue B-factor for THIS entity, residue-indexed.
+    pub(crate) b_factors: Option<&'a [f32]>,
+    /// Assembly-global (min, max) B-factor, for normalization.
+    pub(crate) b_range: (f32, f32),
+}
+
 /// Compute per-residue colors using the scheme + palette system.
 ///
-/// Supports all [`ColorScheme`](super::ColorScheme) variants. For schemes
-/// that require data not available in the current pipeline (BFactor,
-/// Hydrophobicity), falls back to neutral gray.
+/// Supports all [`ColorScheme`](super::ColorScheme) variants. Hydrophobicity
+/// still lacks the per-atom data this residue-level path can supply, so it
+/// falls back to neutral gray.
 ///
 /// `entity_index` is the position of the entity within the assembly, used
 /// by [`ColorScheme::Entity`](super::ColorScheme::Entity) so every entity
@@ -56,7 +66,7 @@ fn score_to_t_absolute(score: f64) -> f32 {
 pub(crate) fn compute_per_residue_colors_styled(
     backbone_chains: &[crate::renderer::entity_topology::ProteinBackboneChain],
     ss_types: &[molex::SSType],
-    per_residue_scores: &[Option<&[f64]>],
+    inputs: &SchemeInputs<'_>,
     scheme: &super::ColorScheme,
     palette: &super::palette::Palette,
     entity_index: usize,
@@ -97,7 +107,7 @@ pub(crate) fn compute_per_residue_colors_styled(
         }
         super::ColorScheme::Score | super::ColorScheme::ScoreRelative => {
             let mut all_scores: Vec<f64> = Vec::new();
-            for &s in per_residue_scores.iter().flatten() {
+            for &s in inputs.scores.iter().flatten() {
                 all_scores.extend_from_slice(s);
             }
             if all_scores.is_empty() {
@@ -120,10 +130,28 @@ pub(crate) fn compute_per_residue_colors_styled(
                 .map_or([0.5, 0.5, 0.5], |s| s.1);
             vec![color; residue_count]
         }
-        super::ColorScheme::BFactor | super::ColorScheme::Hydrophobicity => {
-            // These schemes require per-atom data not available in the
-            // current pipeline. Fall back to gray.
+        super::ColorScheme::Hydrophobicity => {
+            // Hydrophobicity needs per-atom sidechain data this
+            // residue-level path does not carry. Fall back to gray.
             vec![[0.5, 0.5, 0.5]; residue_count]
+        }
+        super::ColorScheme::BFactor => {
+            let Some(b_factors) = inputs.b_factors.filter(|b| !b.is_empty())
+            else {
+                return vec![[0.5, 0.5, 0.5]; residue_count];
+            };
+            let (lo, hi) = inputs.b_range;
+            (0..residue_count)
+                .map(|i| {
+                    let b = b_factors.get(i).copied().unwrap_or(lo);
+                    let t = if (hi - lo).abs() < 1e-6 {
+                        0.0
+                    } else {
+                        ((b - lo) / (hi - lo)).clamp(0.0, 1.0)
+                    };
+                    palette.sample(t)
+                })
+                .collect()
         }
     }
 }
@@ -214,4 +242,119 @@ fn per_entity_color(
         .iter()
         .flat_map(|chain| std::iter::repeat_n(color, chain.ca().len()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::palette::{Palette, PaletteMode, PalettePreset};
+    use crate::options::ColorScheme;
+
+    fn b_factor_palette() -> Palette {
+        Palette {
+            preset: PalettePreset::BlueGreenRed,
+            mode: PaletteMode::Gradient,
+            stops: Vec::new(),
+        }
+    }
+
+    fn colors_for(
+        scheme: &ColorScheme,
+        palette: &Palette,
+        ss_len: usize,
+        b_factors: Option<&[f32]>,
+        b_range: (f32, f32),
+    ) -> Vec<[f32; 3]> {
+        let ss_types = vec![molex::SSType::Coil; ss_len];
+        let inputs = SchemeInputs {
+            scores: &[],
+            b_factors,
+            b_range,
+        };
+        compute_per_residue_colors_styled(
+            &[],
+            &ss_types,
+            &inputs,
+            scheme,
+            palette,
+            0,
+            false,
+        )
+    }
+
+    #[test]
+    fn bfactor_degenerate_range_maps_all_to_sample_zero() {
+        let palette = b_factor_palette();
+        let expected = palette.sample(0.0);
+        let colors = colors_for(
+            &ColorScheme::BFactor,
+            &palette,
+            3,
+            Some(&[5.0, 5.0, 5.0]),
+            (5.0, 5.0),
+        );
+        assert_eq!(colors.len(), 3);
+        for c in colors {
+            assert_eq!(c, expected);
+        }
+    }
+
+    #[test]
+    fn bfactor_normal_range_maps_t_monotonically() {
+        let palette = b_factor_palette();
+        // Ascending b-factors over [lo, hi] must normalize to ascending
+        // t, so each color matches `sample` at its own normalized point.
+        let b = [0.0_f32, 2.5, 5.0, 7.5, 10.0];
+        let colors = colors_for(
+            &ColorScheme::BFactor,
+            &palette,
+            b.len(),
+            Some(&b),
+            (0.0, 10.0),
+        );
+        assert_eq!(colors[0], palette.sample(0.0));
+        assert_eq!(colors[b.len() - 1], palette.sample(1.0));
+        for (i, &bv) in b.iter().enumerate() {
+            assert_eq!(colors[i], palette.sample(bv / 10.0));
+        }
+    }
+
+    #[test]
+    fn bfactor_none_yields_gray() {
+        let palette = b_factor_palette();
+        let colors =
+            colors_for(&ColorScheme::BFactor, &palette, 4, None, (0.0, 10.0));
+        assert_eq!(colors, vec![[0.5, 0.5, 0.5]; 4]);
+    }
+
+    #[test]
+    fn bfactor_short_slice_pads_with_t_zero() {
+        let palette = b_factor_palette();
+        // Two b-factors but four residues: last two pad to lo (t = 0).
+        let colors = colors_for(
+            &ColorScheme::BFactor,
+            &palette,
+            4,
+            Some(&[0.0_f32, 10.0]),
+            (0.0, 10.0),
+        );
+        assert_eq!(colors.len(), 4);
+        assert_eq!(colors[0], palette.sample(0.0));
+        assert_eq!(colors[1], palette.sample(1.0));
+        assert_eq!(colors[2], palette.sample(0.0));
+        assert_eq!(colors[3], palette.sample(0.0));
+    }
+
+    #[test]
+    fn hydrophobicity_still_gray() {
+        let palette = b_factor_palette();
+        let colors = colors_for(
+            &ColorScheme::Hydrophobicity,
+            &palette,
+            3,
+            Some(&[1.0, 2.0, 3.0]),
+            (0.0, 10.0),
+        );
+        assert_eq!(colors, vec![[0.5, 0.5, 0.5]; 3]);
+    }
 }

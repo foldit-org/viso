@@ -193,7 +193,6 @@ pub(crate) struct EntityTopology {
     pub(crate) atom_elements: Vec<Element>,
     /// B-factor of each atom, in entity-local index order. Parallel to
     /// [`atom_elements`](Self::atom_elements).
-    #[expect(dead_code, reason = "ingested column has no renderer consumer")]
     pub(crate) atom_b_factors: Vec<f32>,
     /// Which residue each atom belongs to (index into
     /// [`residue_atom_ranges`](Self::residue_atom_ranges)).

@@ -64,6 +64,8 @@ pub enum PalettePreset {
     CoolWarm,
     /// Green-Yellow-Red — Foldit legacy score colors. NOT colorblind-safe.
     GreenYellowRed,
+    /// Blue-Green-Red — Foldit legacy B-factor ramp. NOT colorblind-safe.
+    BlueGreenRed,
     /// Brown-White-Teal (BrBG) — natural hydrophobicity mapping.
     BrownTeal,
 
@@ -242,6 +244,13 @@ impl PalettePreset {
                 (0.00, [0.100, 0.800, 0.200]),
                 (0.50, [1.000, 0.900, 0.100]),
                 (1.00, [0.900, 0.150, 0.100]),
+            ],
+
+            // Blue-Green-Red (Foldit legacy B-factor, piecewise linear)
+            Self::BlueGreenRed => vec![
+                (0.00, [0.0, 0.0, 1.0]),
+                (0.50, [0.0, 1.0, 0.0]),
+                (1.00, [1.0, 0.0, 0.0]),
             ],
 
             // Brown-White-Teal (BrBG, diverging)
@@ -443,6 +452,7 @@ mod tests {
             PalettePreset::BlueWhiteRed,
             PalettePreset::CoolWarm,
             PalettePreset::GreenYellowRed,
+            PalettePreset::BlueGreenRed,
             PalettePreset::BrownTeal,
         ];
         for preset in &presets {
