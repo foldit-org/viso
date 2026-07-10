@@ -244,7 +244,13 @@ impl VisoEngine {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let encoder = self.render_to_view(&view);
+        let mut encoder = self.render_to_view(&view);
+        // Last write to the swapchain: composites over the presented frame at
+        // native resolution, outside the render-scaled post-process chain.
+        self.gpu
+            .post_process
+            .overlay_pass
+            .render(&mut encoder, &view);
         self.gpu.context.submit(encoder);
 
         self.gpu.pick.picking.start_readback();
@@ -254,6 +260,35 @@ impl VisoEngine {
         self.frame_timing.end_frame();
 
         Ok(())
+    }
+
+    /// Install a texture to blend over the presented frame, or `None` to stop
+    /// compositing one.
+    ///
+    /// Drawn last, after FXAA, straight onto the swapchain view. It is not
+    /// resampled by the render-scale (SSAA) chain, so a host compositing UI
+    /// text through it stays crisp; size the texture to the window's physical
+    /// pixels, not [`Self::render_to_texture`]'s scaled dimensions.
+    ///
+    /// The source must be **premultiplied alpha**; it composites source-over.
+    /// Only [`Self::render`] draws it -- [`Self::render_to_texture`] does not.
+    pub fn set_overlay_texture(&mut self, view: Option<&wgpu::TextureView>) {
+        let device = &self.gpu.context.device;
+        self.gpu.post_process.overlay_pass.set_texture(device, view);
+    }
+
+    /// The device the renderer was built on. A host compositing through
+    /// [`Self::set_overlay_texture`] must allocate its texture here, or the
+    /// import will not share the device.
+    #[must_use]
+    pub const fn device(&self) -> &wgpu::Device {
+        &self.gpu.context.device
+    }
+
+    /// The queue paired with [`Self::device`].
+    #[must_use]
+    pub const fn queue(&self) -> &wgpu::Queue {
+        &self.gpu.context.queue
     }
 
     /// Render the scene to the given texture view (for embedding in

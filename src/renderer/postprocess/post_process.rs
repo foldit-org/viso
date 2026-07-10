@@ -3,6 +3,7 @@ use glam::Mat4;
 use super::{
     BloomPass, CompositeInputs, CompositePass, FxaaPass, ScreenPass,
     SsaoRenderer,
+    overlay::OverlayPass,
 };
 use crate::error::VisoError;
 use crate::gpu::pipeline_helpers::create_render_texture;
@@ -30,6 +31,8 @@ pub(crate) struct PostProcessStack {
     pub(crate) bloom_pass: BloomPass,
     pub(crate) composite_pass: CompositePass,
     pub(crate) fxaa_pass: FxaaPass,
+    /// Host-supplied overlay, blended onto the swapchain after FXAA.
+    pub(crate) overlay_pass: OverlayPass,
 }
 
 impl PostProcessStack {
@@ -77,6 +80,7 @@ impl PostProcessStack {
         };
 
         let fxaa_pass = FxaaPass::new(context, shader_composer)?;
+        let overlay_pass = OverlayPass::new(context, shader_composer)?;
         composite_pass.set_output_view(fxaa_pass.get_input_view().clone());
 
         Ok(Self {
@@ -90,6 +94,7 @@ impl PostProcessStack {
             bloom_pass,
             composite_pass,
             fxaa_pass,
+            overlay_pass,
         })
     }
 

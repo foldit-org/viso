@@ -6,6 +6,7 @@
 pub(crate) mod bloom;
 pub(crate) mod composite;
 pub(crate) mod fxaa;
+pub(crate) mod overlay;
 pub(crate) mod post_process;
 pub(crate) mod screen_pass;
 pub(crate) mod ssao;
