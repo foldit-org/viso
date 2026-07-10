@@ -16,6 +16,7 @@
 //!
 //! [`Assembly`]: molex::Assembly
 
+mod color;
 mod pipeline;
 
 use std::collections::HashMap;

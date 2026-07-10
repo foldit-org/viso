@@ -4,15 +4,11 @@ Viso supports several coloring schemes for backbones, sidechains, and
 nucleic acids. Colors are computed during background scene processing
 and uploaded to GPU buffers for zero-cost rendering.
 
-The active color scheme is one of two systems:
+The active color scheme is driven by the `ColorScheme` enum on
+`DisplayOverrides`, which decouples *what data drives color* from
+*which palette is used*.
 
-- The legacy `BackboneColorMode` enum on `DisplayOptions`, retained
-  for backward compatibility with existing presets.
-- The newer `ColorScheme` enum on `DisplayOverrides` (the recommended
-  API), which decouples *what data drives color* from *which palette
-  is used*.
-
-## ColorScheme (recommended)
+## ColorScheme
 
 ```rust
 pub enum ColorScheme {
@@ -32,21 +28,7 @@ pub enum ColorScheme {
 `DisplayOverrides`) chooses *which colors*. Any scheme can be combined
 with any palette.
 
-## BackboneColorMode (legacy)
-
-```rust
-pub enum BackboneColorMode {
-    Score,              // Per-residue energy score
-    ScoreRelative,      // Relative scoring within the structure
-    SecondaryStructure, // Helix/sheet/coil coloring
-    Chain,              // Each chain gets a distinct color (default)
-}
-```
-
-A `From<&BackboneColorMode>` impl maps each variant to its
-`ColorScheme` equivalent (`Chain → Entity`, `Score → Score`,
-`ScoreRelative → ScoreRelative`, `SecondaryStructure →
-SecondaryStructure`).
+## Color modes in detail
 
 ### Chain / Entity (Default)
 

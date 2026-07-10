@@ -40,9 +40,6 @@ pub struct DisplayOptions {
     // Structural bond display (H-bonds, disulfides)
     pub bonds: BondOptions,
 
-    // Legacy (prefer `overrides.color_scheme`)
-    pub backbone_color_mode: BackboneColorMode,
-
     // Per-entity overridable fields (flattened for TOML compat).
     // These are also used at per-entity scope via `EntityAnnotations`;
     // `None` at either scope falls through to the next layer

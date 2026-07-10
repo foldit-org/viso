@@ -27,10 +27,9 @@ pub use camera::CameraOptions;
 pub use colors::ColorOptions;
 pub use debug::DebugOptions;
 pub use display::{
-    BackboneColorMode, BondOptions, BondSource, BondStyle, BondTypeOptions,
-    ColorScheme, DisplayOptions, DrawingMode, HelixStyle, LipidMode,
-    NaColorMode, PresentMode, SheetStyle, SidechainColorMode,
-    SurfaceKindOption,
+    BondOptions, BondSource, BondStyle, BondTypeOptions, ColorScheme,
+    DisplayOptions, DrawingMode, HelixStyle, LipidMode, NaColorMode,
+    PresentMode, SheetStyle, SidechainColorMode, SurfaceKindOption,
 };
 pub use geometry::{
     lod_params, lod_scaled, select_chain_lod_tier, select_lod_tier,
@@ -195,8 +194,6 @@ shininess = 80.0
         assert!(display.get("show_cavities").is_some());
         assert!(display.get("surface_opacity").is_some());
         assert!(display.get("drawing_mode").is_some());
-        // backbone_color_mode stays hidden via #[schemars(skip)].
-        assert!(display.get("backbone_color_mode").is_none());
 
         // surface_opacity carries minimum/maximum so the GUI renders it as a
         // slider.
@@ -231,5 +228,17 @@ shininess = 80.0
         assert_eq!(opts.display.backbone_color_scheme(), ColorScheme::BFactor);
         assert_eq!(opts.display.surface_opacity(), 0.5);
         assert!(opts.display.show_cavities());
+    }
+
+    #[test]
+    fn stale_backbone_color_mode_key_is_ignored() {
+        // Presets persisted before the field was dropped may still carry it.
+        // `#[serde(default)]` without `deny_unknown_fields` must silently skip
+        // the unknown key rather than error.
+        let toml_str = r#"
+backbone_color_mode = "chain"
+"#;
+        let display: DisplayOptions = toml::from_str(toml_str).unwrap();
+        assert_eq!(display, DisplayOptions::default());
     }
 }

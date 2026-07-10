@@ -188,26 +188,6 @@ pub enum SheetStyle {
     Tube,
 }
 
-/// How protein backbone is colored.
-///
-/// Legacy enum retained for backward compatibility. New code should prefer
-/// [`ColorScheme`].
-#[derive(
-    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, JsonSchema,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum BackboneColorMode {
-    /// Color by absolute score.
-    Score,
-    /// Color by relative score.
-    ScoreRelative,
-    /// Color by secondary structure type.
-    SecondaryStructure,
-    /// Each chain gets a distinct color, interpolated blue→red.
-    #[default]
-    Chain,
-}
-
 /// What property drives coloring.
 ///
 /// The scheme determines *what data* maps to color. The palette (a separate
@@ -235,17 +215,6 @@ pub enum ColorScheme {
     ScoreRelative,
     /// Single uniform color (uses first color from palette stops).
     Solid,
-}
-
-impl From<&BackboneColorMode> for ColorScheme {
-    fn from(mode: &BackboneColorMode) -> Self {
-        match mode {
-            BackboneColorMode::Chain => Self::Entity,
-            BackboneColorMode::Score => Self::Score,
-            BackboneColorMode::ScoreRelative => Self::ScoreRelative,
-            BackboneColorMode::SecondaryStructure => Self::SecondaryStructure,
-        }
-    }
 }
 
 /// How sidechains are colored.
@@ -389,12 +358,6 @@ pub struct DisplayOptions {
     /// Structural bond visualization settings (H-bonds, disulfides).
     pub bonds: BondOptions,
 
-    // Legacy
-    /// Backbone coloring strategy (legacy field — prefer
-    /// `overrides.color_scheme`).
-    #[schemars(skip)]
-    pub backbone_color_mode: BackboneColorMode,
-
     // Per-entity overridable fields (flattened for TOML compat)
     /// User's global display preferences, expressed as a bag of
     /// overrides. `None` fields fall through to built-in defaults.
@@ -416,7 +379,6 @@ impl Default for DisplayOptions {
             show_exposed_hydrophobics: false,
             present_mode: PresentMode::default(),
             bonds: BondOptions::default(),
-            backbone_color_mode: BackboneColorMode::default(),
             overrides: super::DisplayOverrides::default(),
         }
     }
