@@ -39,52 +39,56 @@ impl OverlayPass {
         context: &RenderContext,
         shader_composer: &mut ShaderComposer,
     ) -> Result<Self, VisoError> {
-        let shader = shader_composer.compose(&context.device, Shader::Overlay)?;
-        let bind_group_layout =
-            context
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Overlay Bind Group Layout"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
+        let shader =
+            shader_composer.compose(&context.device, Shader::Overlay)?;
+        let bind_group_layout = context.device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                label: Some("Overlay Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float {
+                                filterable: true,
                             },
-                            count: None,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                });
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(
+                            wgpu::SamplerBindingType::Filtering,
+                        ),
+                        count: None,
+                    },
+                ],
+            },
+        );
 
         // Not `create_screen_space_pipeline`: the fragment entry point depends
         // on the color space the blend unit will composite in.
         let format = context.config.format;
-        let layout = context
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout = context.device.create_pipeline_layout(
+            &wgpu::PipelineLayoutDescriptor {
                 label: Some("Overlay Pipeline Layout"),
                 bind_group_layouts: &[Some(&bind_group_layout)],
                 immediate_size: 0,
-            });
-        let pipeline = context
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            },
+        );
+        let pipeline = context.device.create_render_pipeline(
+            &wgpu::RenderPipelineDescriptor {
                 label: Some("Overlay Pipeline"),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
                     buffers: &[],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    compilation_options:
+                        wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
@@ -98,14 +102,16 @@ impl OverlayPass {
                         blend: Some(PREMULTIPLIED_OVER),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    compilation_options:
+                        wgpu::PipelineCompilationOptions::default(),
                 }),
                 primitive: wgpu::PrimitiveState::default(),
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
                 multiview_mask: None,
                 cache: None,
-            });
+            },
+        );
 
         Ok(Self {
             pipeline,

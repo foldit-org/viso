@@ -1,9 +1,9 @@
 use glam::Mat4;
 
+use super::overlay::OverlayPass;
 use super::{
     BloomPass, CompositeInputs, CompositePass, FxaaPass, ScreenPass,
     SsaoRenderer,
-    overlay::OverlayPass,
 };
 use crate::error::VisoError;
 use crate::gpu::pipeline_helpers::create_render_texture;
