@@ -9,6 +9,7 @@
 //! Uses the same capsule_impostor.wgsl shader as the tube renderer.
 
 use glam::Vec3;
+use molex::Element;
 
 use crate::camera::frustum::Frustum;
 use crate::error::VisoError;
@@ -64,7 +65,8 @@ impl SidechainRenderer {
         )?;
 
         // No frustum culling on initial creation
-        let instances = Self::generate_instances(sidechain, None, None, None);
+        let instances =
+            Self::generate_instances(sidechain, None, None, None, None);
 
         let _ =
             pass.write_instances(&context.device, &context.queue, &instances);
@@ -77,11 +79,15 @@ impl SidechainRenderer {
     /// - `sidechain_colors`: Optional (hydrophobic, hydrophilic) color override
     /// - `per_residue_colors`: When set, each sidechain atom is colored by its
     ///   residue's backbone color (overrides `sidechain_colors`).
+    /// - `cpk_elements`: When set, a layout-indexed element slice; non-carbon
+    ///   atoms take their element (CPK) color and carbon falls through to the
+    ///   color mode selected above. `None` disables CPK coloring.
     pub(crate) fn generate_instances(
         sidechain: &SidechainView,
         frustum: Option<&Frustum>,
         sidechain_colors: Option<([f32; 3], [f32; 3])>,
         per_residue_colors: Option<&[[f32; 3]]>,
+        cpk_elements: Option<&[Element]>,
     ) -> Vec<CapsuleInstance> {
         let mut instances = Vec::with_capacity(
             sidechain.bonds.len() + sidechain.backbone_bonds.len(),
@@ -94,6 +100,13 @@ impl SidechainRenderer {
 
         // Helper to get color for an atom index
         let get_color = |idx: usize| -> [f32; 3] {
+            if let Some(color) = cpk_elements
+                .and_then(|elements| elements.get(idx))
+                .filter(|&&elem| elem != Element::C)
+                .map(Element::cpk_color)
+            {
+                return color;
+            }
             // Backbone color mode: look up the residue's backbone color.
             if let Some(colors) = per_residue_colors {
                 let res =

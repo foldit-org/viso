@@ -54,7 +54,7 @@ pub use app::VisoApp;
 pub use bridge::UiAction;
 pub use engine::command::{
     AtomRef, BandInfo, BandTarget, BandType, ClashEndpoint, ClashInfo,
-    ExposedHydrophobicInfo, PullInfo,
+    ExposedHydrophobicInfo, PullInfo, SelectSphereInfo,
 };
 pub use engine::constraint::PickedResidueAtom;
 pub use engine::focus::Focus;

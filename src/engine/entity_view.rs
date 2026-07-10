@@ -123,6 +123,50 @@ impl<'a> RibbonBackbone<'a> {
 
 // derive_topology -- engine-side derivation factory
 
+/// Whether `cached` still describes `entity` under `ss`, so the caller can
+/// keep it instead of rederiving.
+///
+/// Nothing in [`EntityTopology`] depends on atom *coordinates* — it is
+/// composition (elements, bonds, residue tables, backbone/sidechain index
+/// layouts) plus secondary structure. A coordinate-only republish, which is
+/// every frame of a wiggle or shake, therefore produces a topology identical
+/// to the one already held. Rederiving it clones the bond list and rebuilds
+/// the sidechain `atom_lookup` map (a `Box<str>` per sidechain atom) for
+/// every entity, every frame.
+///
+/// The check is deliberately stronger than the `residue_atom_ranges` compare
+/// the caller uses for slice-index validity: a same-size mutation (ASP->ASN,
+/// eight atoms either way) leaves the ranges untouched while changing residue
+/// names, elements and bonds. Names are compared for exactly that case.
+pub(crate) fn topology_reusable(
+    cached: &EntityTopology,
+    entity: &MoleculeEntity,
+    ss: &[SSType],
+) -> bool {
+    if cached.molecule_type != entity.molecule_type()
+        || cached.atom_elements != entity.elements()
+        || cached.ss_types != ss
+    {
+        return false;
+    }
+    let Some(residues) = entity.residues() else {
+        // Non-polymer (water, ions, ligands). `derive_topology` may still
+        // give these a residue table, so an emptiness check would reject
+        // them forever; the element comparison above already pins both the
+        // atom count and the composition.
+        return true;
+    };
+    if cached.residue_atom_ranges.len() != residues.len() {
+        return false;
+    }
+    residues.iter().enumerate().all(|(i, r)| {
+        let range = &cached.residue_atom_ranges[i];
+        cached.residue_names[i] == r.name
+            && range.start as usize == r.atom_range.start
+            && range.end as usize == r.atom_range.end
+    })
+}
+
 /// Rederive the render-ready [`EntityTopology`] view of a single entity.
 ///
 /// `ss` is the per-residue secondary structure for the entity, as
@@ -156,6 +200,7 @@ pub(crate) fn derive_topology(
                 na_guide_atom_indices: Vec::new(),
                 ss_types: ss.to_vec(),
                 atom_elements: protein.columns.element.clone(),
+                atom_b_factors: protein.columns.b_factor.clone(),
                 atom_residue_index,
                 residue_names,
                 residue_atom_ranges,
@@ -178,6 +223,7 @@ pub(crate) fn derive_topology(
                 na_guide_atom_indices: na_guide_atom_indices(na, molecule_type),
                 ss_types: Vec::new(),
                 atom_elements: na.columns.element.clone(),
+                atom_b_factors: na.columns.b_factor.clone(),
                 atom_residue_index,
                 residue_names,
                 residue_atom_ranges,
@@ -194,6 +240,7 @@ pub(crate) fn derive_topology(
             na_guide_atom_indices: Vec::new(),
             ss_types: Vec::new(),
             atom_elements: sm.columns.element.clone(),
+            atom_b_factors: sm.columns.b_factor.clone(),
             atom_residue_index: vec![0; sm.columns.len()],
             residue_names: vec![sm.residue_name],
             residue_atom_ranges: std::iter::once(0..sm.columns.len() as u32)
@@ -210,6 +257,7 @@ pub(crate) fn derive_topology(
             na_guide_atom_indices: Vec::new(),
             ss_types: Vec::new(),
             atom_elements: bulk.columns.element.clone(),
+            atom_b_factors: bulk.columns.b_factor.clone(),
             atom_residue_index: Vec::new(),
             residue_names: Vec::new(),
             residue_atom_ranges: Vec::new(),

@@ -603,6 +603,11 @@ impl ConstraintSpecs {
             &gpu.context.queue,
             &beads,
         );
+        gpu.renderers.select_sphere.update(
+            &gpu.context.device,
+            &gpu.context.queue,
+            self.select_sphere_spec,
+        );
     }
 }
 

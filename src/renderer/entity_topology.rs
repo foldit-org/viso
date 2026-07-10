@@ -191,6 +191,10 @@ pub(crate) struct EntityTopology {
 
     /// Element of each atom, in entity-local index order.
     pub(crate) atom_elements: Vec<Element>,
+    /// B-factor of each atom, in entity-local index order. Parallel to
+    /// [`atom_elements`](Self::atom_elements).
+    #[expect(dead_code, reason = "ingested column has no renderer consumer")]
+    pub(crate) atom_b_factors: Vec<f32>,
     /// Which residue each atom belongs to (index into
     /// [`residue_atom_ranges`](Self::residue_atom_ranges)).
     pub(crate) atom_residue_index: Vec<u32>,
@@ -553,6 +557,7 @@ mod tests {
             na_guide_atom_indices: Vec::new(),
             ss_types: Vec::new(),
             atom_elements: Vec::new(),
+            atom_b_factors: Vec::new(),
             atom_residue_index: Vec::new(),
             residue_names: Vec::new(),
             residue_atom_ranges: Vec::new(),

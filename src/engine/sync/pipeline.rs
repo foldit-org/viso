@@ -59,9 +59,26 @@ impl SyncPipeline {
             let _ = seen.insert(id);
             let ss = assembly.ss_types(id);
             let ss_override = annotations.ss_overrides.get(&id).cloned();
-            let topology = Arc::new(
-                crate::engine::entity_view::derive_topology(entity, ss),
-            );
+            // Topology is composition + SS; it does not depend on coords. On a
+            // coord-only republish (every wiggle/shake frame) the cached one
+            // still describes the entity, so keep it rather than rebuild the
+            // bond list and sidechain lookup map for every entity, every frame.
+            let reused = scene
+                .entity_state
+                .get(&id)
+                .filter(|state| {
+                    crate::engine::entity_view::topology_reusable(
+                        &state.topology,
+                        entity,
+                        ss,
+                    )
+                })
+                .map(|state| Arc::clone(&state.topology));
+            let topology = reused.unwrap_or_else(|| {
+                Arc::new(crate::engine::entity_view::derive_topology(
+                    entity, ss,
+                ))
+            });
             let drawing_mode = annotations.resolved_drawing_mode(
                 options,
                 id,

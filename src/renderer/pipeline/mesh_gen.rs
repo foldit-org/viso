@@ -101,11 +101,19 @@ fn generate_sidechain_bytes(
         == SidechainColorMode::Backbone)
         .then_some(per_residue_colors)
         .flatten();
+    let cpk_elements = display.cpk_sidechain_atoms().then(|| {
+        layout
+            .atom_indices
+            .iter()
+            .map(|&i| topology.atom_elements[i as usize])
+            .collect::<Vec<_>>()
+    });
     let insts = SidechainRenderer::generate_instances(
         &view,
         None,
         Some((colors.hydrophobic_sidechain, colors.hydrophilic_sidechain)),
         backbone_colors,
+        cpk_elements.as_deref(),
     );
     let count = insts.len() as u32;
     (bytemuck::cast_slice(&insts).to_vec(), count)

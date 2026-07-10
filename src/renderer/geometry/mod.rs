@@ -14,6 +14,7 @@ pub(crate) mod exposed_hydrophobic;
 pub(crate) mod isosurface;
 pub(crate) mod nucleic_acid;
 pub(crate) mod pull;
+pub(crate) mod select_sphere;
 pub(crate) mod sheet_adjust;
 pub(crate) mod sidechain;
 
@@ -27,4 +28,5 @@ pub(crate) use clash::ClashArcRenderer;
 pub(crate) use exposed_hydrophobic::GreaseBeadRenderer;
 pub(crate) use nucleic_acid::NucleicAcidRenderer;
 pub(crate) use pull::PullRenderer;
+pub(crate) use select_sphere::SelectSphereRenderer;
 pub(crate) use sidechain::{SidechainRenderer, SidechainView};

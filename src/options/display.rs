@@ -496,6 +496,13 @@ impl DisplayOptions {
             .unwrap_or_default()
     }
 
+    /// Whether non-carbon sidechain atoms take their element (CPK) color,
+    /// resolved.
+    #[must_use]
+    pub fn cpk_sidechain_atoms(&self) -> bool {
+        self.overrides.cpk_sidechain_atoms.unwrap_or(false)
+    }
+
     /// Nucleic acid coloring strategy, resolved.
     #[must_use]
     pub fn na_color_mode(&self) -> NaColorMode {

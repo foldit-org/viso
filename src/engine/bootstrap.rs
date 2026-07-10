@@ -188,6 +188,7 @@ impl VisoEngine {
                 pull_spec: None,
                 clash_specs: Vec::new(),
                 exposed_hydro_specs: Vec::new(),
+                select_sphere_spec: None,
             },
             animation: AnimationState::new(),
             options,

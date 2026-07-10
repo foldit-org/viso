@@ -8,12 +8,14 @@
 pub(crate) mod capsule;
 pub(crate) mod cone;
 pub(crate) mod polygon;
+pub(crate) mod select_sphere;
 pub(crate) mod sphere;
 
 use bytemuck::{Pod, Zeroable};
 pub(crate) use capsule::CapsuleInstance;
 pub(crate) use cone::ConeInstance;
 pub(crate) use polygon::ExtrudedPolygonInstance;
+pub(crate) use select_sphere::SelectSphereInstance;
 pub(crate) use sphere::SphereInstance;
 
 use crate::error::VisoError;

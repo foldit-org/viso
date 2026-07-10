@@ -14,6 +14,7 @@ pub(crate) mod positions;
 pub(crate) mod scene;
 mod scene_ops;
 pub(crate) mod scene_state;
+mod select_sphere;
 pub(crate) mod surface;
 pub(crate) mod surface_regen;
 mod sync;
@@ -72,6 +73,8 @@ pub(crate) struct ConstraintSpecs {
     pub(crate) clash_specs: Vec<command::ClashInfo>,
     /// Exposed-hydrophobic "grease bead" marker specs.
     pub(crate) exposed_hydro_specs: Vec<command::ExposedHydrophobicInfo>,
+    /// Transient select-sphere drag overlay, world-space. `None` hides it.
+    pub(crate) select_sphere_spec: Option<command::SelectSphereInfo>,
 }
 
 /// The core rendering engine for protein visualization.
@@ -224,7 +227,20 @@ impl VisoEngine {
 
         self.pre_render();
 
-        let frame = self.gpu.context.get_next_frame()?;
+        let frame = match self.gpu.context.get_next_frame() {
+            Ok(frame) => frame,
+            Err(e) => {
+                // `pre_render` staged writes and we will never reach `submit`.
+                // wgpu holds a staging buffer per `write_buffer` until one
+                // does, so an occluded surface leaks a frame's worth forever.
+                // An empty submit drains them.
+                let _ = self.gpu.context.queue.submit([]);
+                // Advance the clock so a dead surface can't spin the loop.
+                self.frame_timing.end_frame();
+                let _ = self.gpu.context.device.poll(wgpu::PollType::Poll);
+                return Err(e);
+            }
+        };
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());

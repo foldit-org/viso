@@ -219,6 +219,47 @@ fn diff_bond_style_sets_mesh_only() {
 }
 
 #[test]
+fn diff_cpk_sidechain_atoms_sets_mesh() {
+    let a = DisplayOverrides::default();
+    let b = DisplayOverrides {
+        cpk_sidechain_atoms: Some(true),
+        ..Default::default()
+    };
+    let inv = a.diff(&b);
+    assert!(inv.contains(RenderInvalidation::RE_MESH));
+    assert!(!inv.contains(RenderInvalidation::RE_SURFACE));
+    assert!(!inv.contains(RenderInvalidation::RE_COLOR));
+}
+
+#[test]
+fn cpk_sidechain_atoms_survives_apply_and_resolve() {
+    let mut o = DisplayOverrides::default();
+    let r = o.apply_json_field("cpk_sidechain_atoms", &serde_json::json!(true));
+    assert!(r.is_ok());
+    assert_eq!(o.cpk_sidechain_atoms, Some(true));
+
+    let base = DisplayOptions::default();
+    assert!(!base.cpk_sidechain_atoms());
+    assert!(o.to_display_options(&base).cpk_sidechain_atoms());
+}
+
+#[test]
+fn cpk_sidechain_atoms_null_clears_entity_override() {
+    // A per-entity `null` clears the slot so it inherits the global value.
+    let mut base = DisplayOptions::default();
+    base.overrides.cpk_sidechain_atoms = Some(true);
+
+    let mut o = DisplayOverrides {
+        cpk_sidechain_atoms: Some(false),
+        ..Default::default()
+    };
+    let r = o.apply_json_field("cpk_sidechain_atoms", &serde_json::Value::Null);
+    assert!(r.is_ok());
+    assert_eq!(o.cpk_sidechain_atoms, None);
+    assert!(o.to_display_options(&base).cpk_sidechain_atoms());
+}
+
+#[test]
 fn diff_simultaneous_changes_union() {
     // Regression test for the historical triple-sync bug: multiple
     // concurrent field changes should OR into a single invalidation

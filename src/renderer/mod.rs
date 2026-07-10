@@ -27,7 +27,7 @@ use self::geometry::isosurface::IsosurfaceRenderer;
 use self::geometry::{
     BackboneRenderer, BallAndStickRenderer, BandRenderer, BondRenderer,
     ClashArcRenderer, GreaseBeadRenderer, NucleicAcidRenderer, PullRenderer,
-    SidechainRenderer, SidechainView,
+    SelectSphereRenderer, SidechainRenderer, SidechainView,
 };
 use crate::camera::frustum::Frustum;
 use crate::gpu::{RenderContext, ShaderComposer};
@@ -71,6 +71,7 @@ pub(crate) struct Renderers {
     pub(crate) ball_and_stick: BallAndStickRenderer,
     pub(crate) nucleic_acid: NucleicAcidRenderer,
     pub(crate) isosurface: IsosurfaceRenderer,
+    pub(crate) select_sphere: SelectSphereRenderer,
 }
 
 impl Renderers {
@@ -114,6 +115,8 @@ impl Renderers {
             shader_composer,
             backface_depth_view,
         )?;
+        let select_sphere =
+            SelectSphereRenderer::new(context, layouts, shader_composer)?;
         Ok(Self {
             backbone,
             sidechain,
@@ -125,6 +128,7 @@ impl Renderers {
             ball_and_stick,
             nucleic_acid,
             isosurface,
+            select_sphere,
         })
     }
 
@@ -218,6 +222,10 @@ impl Renderers {
         self.grease.draw(&mut rp, bind_groups);
         self.pull.draw(&mut rp, bind_groups);
         self.isosurface.draw(&mut rp, bind_groups);
+        // Drawn last: the translucent shell blends over opaque geometry
+        // already in the depth buffer, and its depth writes cannot occlude
+        // anything.
+        self.select_sphere.draw(&mut rp, bind_groups);
     }
 
     /// GPU buffer sizes across all renderers.
@@ -235,6 +243,7 @@ impl Renderers {
         stats.extend(self.pull.buffer_info());
         stats.extend(self.nucleic_acid.buffer_info());
         stats.extend(self.isosurface.buffer_info());
+        stats.extend(self.select_sphere.buffer_info());
         stats
     }
 }

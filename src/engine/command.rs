@@ -123,6 +123,20 @@ pub struct PullInfo {
     pub screen_target: (f32, f32),
 }
 
+/// A transient select-sphere overlay in world space, pushed by the host
+/// while a select-sphere drag gesture is active.
+///
+/// Unlike the atom-anchored specs above, this carries a resolved
+/// world-space centre and radius directly, so the engine forwards it to
+/// the renderer with no per-frame reference resolution.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SelectSphereInfo {
+    /// Sphere centre, world space, angstroms.
+    pub center: Vec3,
+    /// Sphere radius, world space, angstroms.
+    pub radius: f32,
+}
+
 // Resolved types (internal, world-space)
 
 /// Resolved band with world-space positions, ready for the renderer.

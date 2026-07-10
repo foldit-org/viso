@@ -119,6 +119,9 @@ pub struct DisplayOverrides {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(default = "default_sidechain_color_mode")]
     pub sidechain_color_mode: Option<SidechainColorMode>,
+    /// Whether non-carbon sidechain atoms take their element (CPK) color.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpk_sidechain_atoms: Option<bool>,
     /// Nucleic acid coloring strategy.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(default = "default_na_color_mode")]
@@ -264,6 +267,7 @@ impl DisplayOverrides {
             helix_style: _,
             sheet_style: _,
             sidechain_color_mode: _,
+            cpk_sidechain_atoms: _,
             na_color_mode: _,
             lipid_mode: _,
             show_hydrogens: _,
@@ -291,6 +295,9 @@ impl DisplayOverrides {
                 .sidechain_color_mode
                 .clone()
                 .or_else(|| base.sidechain_color_mode.clone()),
+            cpk_sidechain_atoms: self
+                .cpk_sidechain_atoms
+                .or(base.cpk_sidechain_atoms),
             na_color_mode: self
                 .na_color_mode
                 .clone()
@@ -340,6 +347,7 @@ impl DisplayOverrides {
             helix_style: _,
             sheet_style: _,
             sidechain_color_mode: _,
+            cpk_sidechain_atoms: _,
             na_color_mode: _,
             lipid_mode: _,
             show_hydrogens: _,
@@ -380,7 +388,10 @@ impl DisplayOverrides {
         }
 
         // Sidechain coloring: mesh rebuild picks up new sidechain colors.
-        if self.sidechain_color_mode != new.sidechain_color_mode {
+        // CPK element coloring is baked into the same capsule instances.
+        if self.sidechain_color_mode != new.sidechain_color_mode
+            || self.cpk_sidechain_atoms != new.cpk_sidechain_atoms
+        {
             inv |= RenderInvalidation::RE_MESH;
         }
 
@@ -500,6 +511,9 @@ impl DisplayOverrides {
             "sidechain_color_mode" => {
                 self.sidechain_color_mode = parse_field(value, field)?;
             }
+            "cpk_sidechain_atoms" => {
+                self.cpk_sidechain_atoms = parse_bool_field(value, field)?;
+            }
             "na_color_mode" => {
                 self.na_color_mode = parse_field(value, field)?;
             }
@@ -523,6 +537,7 @@ impl DisplayOverrides {
             && self.helix_style.is_none()
             && self.sheet_style.is_none()
             && self.sidechain_color_mode.is_none()
+            && self.cpk_sidechain_atoms.is_none()
             && self.na_color_mode.is_none()
             && self.lipid_mode.is_none()
             && self.show_hydrogens.is_none()
