@@ -73,10 +73,66 @@ fn is_glycine(name: [u8; 3]) -> bool {
 /// shared [`MoleculeEntity::diff`] primitive (the `MutateResidue` edits).
 /// `Err` (a residue insert/delete, or incompatible entities) propagates as
 /// `None` so the caller snaps.
+/// Whether no residue changed identity between `a` and `b`.
+///
+/// This is [`MoleculeEntity::diff`]'s `mutated` predicate — residue name,
+/// atom count, and per-atom element / name / formal charge — evaluated as
+/// whole-column slice compares instead of per-residue `AtomRef` walks. The
+/// columns are struct-of-arrays, so each `==` is a `memcmp` the optimizer
+/// vectorizes; `diff` instead builds a seven-reference `AtomRef` per atom,
+/// twice, and cannot.
+///
+/// `None` means the entities are not comparable (atom or residue count
+/// changed): an indel, which the caller must resolve by snapping.
+fn no_identity_change(a: &MoleculeEntity, b: &MoleculeEntity) -> Option<bool> {
+    if a.atom_count() != b.atom_count() {
+        return None;
+    }
+    let (ca, cb) = (a.columns(), b.columns());
+    let atoms_identical = ca.element == cb.element
+        && ca.name == cb.name
+        && ca.formal_charge == cb.formal_charge;
+    match (a.residues(), b.residues()) {
+        (None, None) => Some(atoms_identical),
+        (Some(ra), Some(rb)) => {
+            if ra.len() != rb.len() {
+                return None;
+            }
+            Some(
+                atoms_identical
+                    && ra.iter().zip(rb).all(|(x, y)| {
+                        x.name == y.name && x.atom_range == y.atom_range
+                    }),
+            )
+        }
+        _ => None,
+    }
+}
+
 fn mutated_residues(
     a: &MoleculeEntity,
     b: &MoleculeEntity,
 ) -> Option<(Vec<u32>, bool)> {
+    // Fast path: nothing mutated, so the changed-residue list is empty and
+    // the only question left is whether atoms moved or variants changed --
+    // both slice compares. This is every frame of a wiggle, shake or pull.
+    // `diff` would answer the same question by allocating a full coordinate
+    // copy we then discard.
+    if no_identity_change(a, b)? {
+        let variants_changed = match (a.residues(), b.residues()) {
+            (Some(ra), Some(rb)) => {
+                ra.iter().zip(rb).any(|(x, y)| x.variants != y.variants)
+            }
+            _ => false,
+        };
+        let any_coord_change =
+            a.positions() != b.positions() || variants_changed;
+        return Some((Vec::new(), any_coord_change));
+    }
+
+    // Identity changed (a mutation): fall back to the full diff, which
+    // localises the change to residue indices. Once per mutation, not per
+    // streamed frame.
     let edits = a.diff(b).ok()?;
     let changed: Vec<u32> = edits
         .iter()
@@ -148,6 +204,16 @@ pub(crate) fn build_animation(
             // animation.
             continue;
         };
+        // A host that edits one lane (`Arc::make_mut`) and republishes by
+        // Arc-cloning the rest hands us the *same* allocation for every
+        // untouched entity. Diffing it would walk every atom to conclude
+        // nothing moved -- the dominant per-frame cost of a wiggle/shake,
+        // where one entity moves and the others are pointer-identical.
+        // Equivalent to the `changed.is_empty() && !any_coord_change` arm
+        // below, reached in O(1).
+        if Arc::ptr_eq(a, b) {
+            continue;
+        }
         // `None` means the diff was non-representable (an indel): snap.
         let (changed, any_coord_change) = mutated_residues(a, b)?;
         if changed.is_empty() {
